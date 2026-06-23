@@ -213,6 +213,7 @@ bot.hears('🔧 Admin Panel', async ctx => {
                 Markup.button.callback(`${r.emoji} ${r.label}`, `list_${r.id}`)
             ]),
             [Markup.button.callback('🔍 ክፍያ ያልተረጋገጡ', 'list_payments')],
+            [Markup.button.callback('🗺️ ሰብሳቢ ዝርዝር', 'collect_choose')],
             [Markup.button.callback('🚚 ቡድን ላክ', 'dispatch_choose')],
             [Markup.button.callback('📊 ጠቅላላ ሪፖርት', 'rep_all')]
         ])
@@ -389,7 +390,83 @@ bot.action('rep_all', async ctx => {
     ctx.reply(txt, { parse_mode: 'Markdown' });
 });
 
-// ── TEXT STATE MACHINE ────────────────────────────────
+// ── ADMIN: collection list — choose route ─────────────
+bot.action('collect_choose', async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(()=>{});
+    ctx.answerCbQuery().catch(()=>{});
+    await ctx.reply('🗺️ *ሰብሳቢ ዝርዝር — መስመር ይምረጡ:*', {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(
+            ROUTES.map(r => [
+                Markup.button.callback(`${r.emoji} ${r.label}`, `collect_${r.id}`)
+            ])
+        )
+    });
+});
+
+// ── ADMIN: collection list — show members ─────────────
+bot.action(/^collect_(.+)$/, async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(()=>{});
+    ctx.answerCbQuery().catch(()=>{});
+    const routeId = ctx.match[1];
+    const route   = routeById(routeId);
+
+    // Get all approved members for this route
+    const members = await CargoReg.find({
+        routeId,
+        status: { $in: ['approved', 'pending_payment', 'payment_review'] }
+    }).sort({ createdAt: 1 }).lean();
+
+    if (!members.length) {
+        return ctx.reply(
+            `🗺️ ${route?.emoji} *${esc(route?.label)}*\n\n📭 ምንም ዝግጁ ተጠቃሚ የለም።`,
+            { parse_mode: 'Markdown' }
+        );
+    }
+
+    // Summary header
+    const totalKg  = members.reduce((s, r) => s + (r.weightKg  || 0), 0);
+    const totalBirr= members.reduce((s, r) => s + (r.totalPrice|| 0), 0);
+
+    await ctx.reply(
+        `🗺️ *${esc(route?.label)} — ሰብሳቢ ዝርዝር*\n` +
+        `━━━━━━━━━━━━━━━\n` +
+        `👥 ሰዎች: *${members.length}*\n` +
+        `⚖️ ጠቅላላ ክብደት: *${totalKg} ኪሎ*\n` +
+        `💰 ጠቅላላ ዋጋ: *${totalBirr} ብር*\n` +
+        `━━━━━━━━━━━━━━━`,
+        { parse_mode: 'Markdown' }
+    );
+
+    // Send each member card + location
+    for (let i = 0; i < members.length; i++) {
+        const r = members[i];
+        const statusIcon = {
+            pending_payment: '⏳',
+            payment_review:  '🔍',
+            approved:        '✅'
+        }[r.status] || '❓';
+
+        const card =
+            `*${i + 1}. ${esc(r.fullName)}* ${statusIcon}\n` +
+            `📞 \`${esc(r.phone)}\`\n` +
+            `📦 ${esc(r.cargoDesc)} — *${r.weightKg} ኪሎ*\n` +
+            `💳 *${r.totalPrice} ብር*`;
+
+        if (r.locationLat && r.locationLng) {
+            // Send text card then actual location pin
+            await ctx.reply(card, { parse_mode: 'Markdown' });
+            await bot.telegram.sendLocation(ctx.chat.id, r.locationLat, r.locationLng);
+        } else {
+            await ctx.reply(
+                card + `\n📍 _ቦታ አልተላከም_`,
+                { parse_mode: 'Markdown' }
+            );
+        }
+    }
+});
+
+
 bot.on('text', async (ctx, next) => {
     const action = ctx.session?.action;
     if (!action) return next();
