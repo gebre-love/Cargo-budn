@@ -17,8 +17,6 @@ if (!BOT_TOKEN || !MONGO_URI) { console.error('BOT_TOKEN እና MONGO_URI ያስ
 
 const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
 
-// ══ ROUTES — እያንዳንዱ route ብዙ stops አለው ═══════════════════
-// stops: ቅደም ተከተል ጠቃሚ ነው — አጓዡ ከ0 → n ይሄዳል
 const ROUTES = [
   {
     id: 'bahirdar_line',
@@ -36,9 +34,9 @@ const ROUTES = [
     label: 'አዲስ አበባ → ሀዋሳ',
     emoji: '🟢',
     stops: [
-      { id: 'ziway',    label: 'ዚዋይ'   },
+      { id: 'ziway',      label: 'ዚዋይ'   },
       { id: 'shashemene', label: 'ሻሸመኔ' },
-      { id: 'hawassa',  label: 'ሀዋሳ'   },
+      { id: 'hawassa',    label: 'ሀዋሳ'   },
     ],
   },
   {
@@ -46,9 +44,9 @@ const ROUTES = [
     label: 'አዲስ አበባ → ድሬዳዋ',
     emoji: '🟠',
     stops: [
-      { id: 'adama',    label: 'አዳማ'   },
-      { id: 'chiro',    label: 'ጭሮ'    },
-      { id: 'dire',     label: 'ድሬዳዋ'  },
+      { id: 'adama', label: 'አዳማ'   },
+      { id: 'chiro', label: 'ጭሮ'    },
+      { id: 'dire',  label: 'ድሬዳዋ'  },
     ],
   },
   {
@@ -56,9 +54,9 @@ const ROUTES = [
     label: 'አዲስ አበባ → መቀሌ',
     emoji: '🔴',
     stops: [
-      { id: 'dessie',   label: 'ደሴ'    },
-      { id: 'woldiya',  label: 'ወልዲያ'  },
-      { id: 'mekelle',  label: 'መቀሌ'   },
+      { id: 'dessie',  label: 'ደሴ'    },
+      { id: 'woldiya', label: 'ወልዲያ'  },
+      { id: 'mekelle', label: 'መቀሌ'   },
     ],
   },
 ];
@@ -78,8 +76,8 @@ const Reg = mongoose.model('CargoReg', new mongoose.Schema({
   username:      { type: String, default: '' },
   fullName:      String,
   phone:         String,
-  routeId:       String,   // የትኛው መስመር
-  stopId:        String,   // የሚወርድበት ቦታ
+  routeId:       String,
+  stopId:        String,
   cargoDesc:     String,
   weightKg:      { type: Number, default: 0 },
   totalPrice:    { type: Number, default: 0 },
@@ -155,6 +153,23 @@ function card(r, admin = false) {
   if (r.aiAutoApproved) t += '\n🤖 AI ፈቅዷል';
   if (admin) t += `\nID: \`${r.userId}\`${r.username ? ' @' + r.username : ''}`;
   return t;
+}
+
+// ══ Route map builder ════════════════════════════════════
+function buildRouteMap(route) {
+  const lines = [];
+  lines.push(`${route.emoji} *${route.label}*`);
+  lines.push('');
+  lines.push('📍 *መስመሩ ላይ ያሉ ቦታዎች:*');
+  lines.push('');
+  lines.push('🏙️ አዲስ አበባ _(መነሻ)_');
+  for (const stop of route.stops) {
+    lines.push('　　　↓');
+    lines.push(`📍 ${stop.label}`);
+  }
+  lines.push('');
+  lines.push('👇 *የሚወርዱበት ቦታ ይምረጡ:*');
+  return lines.join('\n');
 }
 
 const mainKb = () => {
@@ -237,10 +252,10 @@ ROUTES.forEach(route => {
       });
     }
 
-    // Stop ይምረጡ
+    // ✅ Route map አሳይ ከዚያ stops
     ctx.session = { step: 'STOP', routeId: route.id, d: {} };
     await ctx.reply(
-      `${route.emoji} *${route.label}*\n\n1️⃣ *የሚወርዱበት ቦታ ይምረጡ:*`,
+      buildRouteMap(route),
       {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard(
@@ -304,7 +319,6 @@ bot.hears('🔧 Admin', async ctx => {
   ]) });
 });
 
-// List by route — grouped by stop
 bot.action(/^lst_(.+)$/, async ctx => {
   if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
   ctx.answerCbQuery().catch(() => {});
@@ -320,7 +334,6 @@ bot.action(/^lst_(.+)$/, async ctx => {
     { parse_mode: 'Markdown' }
   );
 
-  // Stop ቅደም ተከተል ዝርዝር
   for (const stop of ro.stops) {
     const inStop = list.filter(r => r.stopId === stop.id);
     if (!inStop.length) continue;
@@ -382,8 +395,7 @@ bot.action(/^del_([a-f\d]{24})$/i, async ctx => {
   ctx.reply('🗑️ ምዝገባ ተሰርዟል።', mainKb());
 });
 
-// ── Dispatch — per stop ───────────────────────────────────
-// Admin ቡድን ሲልክ stop by stop ወይም ሙሉ route አንድ ላይ መላክ ይችላል
+// ── Dispatch ───────────────────────────────────────────────
 bot.action('dsp_pick', async ctx => {
   if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
   ctx.answerCbQuery().catch(() => {});
@@ -399,7 +411,6 @@ bot.action(/^dsp_(.+)$/, async ctx => {
   const ready   = await Reg.find({ routeId, status: 'approved' }).lean();
   if (!ready.length) return ctx.reply('⚠️ ፈቃድ ያለው ምዝገባ የለም።');
 
-  // Stop by stop summary
   let summary = `🚚 *${ro?.label}*\n\n`;
   for (const stop of ro.stops) {
     const inStop = ready.filter(r => r.stopId === stop.id);
@@ -465,7 +476,6 @@ bot.on('location', async (ctx, next) => {
       .map(r => ({ ...r, d: r.locationLat ? km(lat,lng,r.locationLat,r.locationLng) : 9999 }))
       .sort((a,b) => a.d - b.d);
 
-    // Stop ቅደም ተከተል ዝርዝር
     for (const stop of ro.stops) {
       const inStop = sorted.filter(r => r.stopId === stop.id);
       if (!inStop.length) continue;
