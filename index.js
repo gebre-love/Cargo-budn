@@ -1,26 +1,34 @@
 'use strict';
 
 // ╔══════════════════════════════════════════════════════╗
-// ║      ካርጎ ቡድን ሥርዓት  v2.0                          ║
-// ║      ካርጎ ቡድን ምዝገባ + ክፍያ Tracking                   ║
+// ║      ካርጎ ቡድን ሥርዓት  v3.0                          ║
+// ║      ካርጎ ቡድን ምዝገባ + AI ክፍያ ማረጋገጫ                 ║
 // ╚══════════════════════════════════════════════════════╝
 
 const { Telegraf, Markup } = require('telegraf');
 const mongoose = require('mongoose');
+const Anthropic = require('@anthropic-ai/sdk');
 
 // ── CONFIG ────────────────────────────────────────────
-const BOT_TOKEN     = (process.env.BOT_TOKEN || '').trim();
-const MONGO_URI     =  process.env.MONGO_URI || '';
-const SUPPORT_PHONE =  process.env.SUPPORT_PHONE || '0960336138';
-const ADMIN_IDS     = (process.env.ADMIN_IDS || '')
-                        .split(',').map(s => Number(s.trim())).filter(Boolean);
-const PAYMENT_INFO  =  process.env.PAYMENT_INFO || 'CBE: 1000XXXXXXX';
-const PRICE_PER_KG  =  10;  // 10 ብር per ኪሎ
+const BOT_TOKEN       = (process.env.BOT_TOKEN || '').trim();
+const MONGO_URI       =  process.env.MONGO_URI || '';
+const SUPPORT_PHONE   =  process.env.SUPPORT_PHONE || '0960336138';
+const ADMIN_IDS       = (process.env.ADMIN_IDS || '')
+                          .split(',').map(s => Number(s.trim())).filter(Boolean);
+const PRICE_PER_KG    =  10;  // 10 ብር per ኪሎ
+const ANTHROPIC_KEY   =  process.env.ANTHROPIC_API_KEY || '';
+// AI ራሱ "ሙሉ በሙሉ ትክክል ነው" ካለ ብቻ auto-approve ያደርጋል። ሌላው ሁሉ ለAdmin ይላካል።
+const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
 
 if (!BOT_TOKEN || !MONGO_URI) {
     console.error('❌ BOT_TOKEN እና MONGO_URI አልተገኘም!');
     process.exit(1);
 }
+if (!ANTHROPIC_KEY) {
+    console.warn('⚠️ ANTHROPIC_API_KEY አልተገኘም — AI ማረጋገጫ ይታለፋል፣ ሁሉም ክፍያ ለAdmin ብቻ ይላካል።');
+}
+
+const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
 
 // ── ROUTES ────────────────────────────────────────────
 const ROUTES = [
@@ -29,6 +37,16 @@ const ROUTES = [
     { id: 'dire',     label: 'አዲስ አበባ → ድሬዳዋ',   emoji: '🟠' },
     { id: 'mekelle',  label: 'አዲስ አበባ → መቀሌ',    emoji: '🔴' },
 ];
+
+// ── PAYMENT METHODS ───────────────────────────────────
+// እያንዳንዱ የራሱ account/number አለው — ደንበኛ ከታች ካለው ይመርጣል
+const PAYMENT_METHODS = [
+    { id: 'telebirr', label: 'ቴሌብር (Telebirr)', emoji: '📱',
+      info: process.env.TELEBIRR_INFO || 'Telebirr: 0960336138' },
+    { id: 'cbe',      label: 'ንግድ ባንክ (CBE)',     emoji: '🏦',
+      info: process.env.CBE_INFO      || 'CBE: 1000370308447' },
+];
+const methodById = id => PAYMENT_METHODS.find(m => m.id === id);
 
 // ── SCHEMAS ───────────────────────────────────────────
 const cargoSchema = new mongoose.Schema({
@@ -42,14 +60,17 @@ const cargoSchema = new mongoose.Schema({
     totalPrice:  { type: Number, default: 0 },
     locationLat: { type: Number, default: null },
     locationLng: { type: Number, default: null },
+    paymentMethod: { type: String, default: null }, // telebirr | cbe | boa | dashen
     status: {
         type: String,
         default: 'pending_payment',
         enum: ['pending_payment', 'payment_review', 'approved', 'rejected', 'dispatched']
     },
-    paymentFileId: { type: String, default: null },
-    groupId:       { type: String, default: null },
-    createdAt:     { type: Date, default: Date.now }
+    paymentFileId:  { type: String, default: null },
+    aiVerdict:      { type: mongoose.Schema.Types.Mixed, default: null }, // AI ትንተና ውጤት ይቀመጥበታል
+    aiAutoApproved: { type: Boolean, default: false },
+    groupId:        { type: String, default: null },
+    createdAt:      { type: Date, default: Date.now }
 });
 
 const dispatchSchema = new mongoose.Schema({
@@ -67,9 +88,9 @@ const sessionSchema = new mongoose.Schema({
                  index: { expireAfterSeconds: 86400 * 3 } }
 });
 
-const CargoReg   = mongoose.model('CargoReg',   cargoSchema);
-const DispatchGrp= mongoose.model('DispatchGrp',dispatchSchema);
-const BotSession = mongoose.model('BotSession', sessionSchema);
+const CargoReg    = mongoose.model('CargoReg',    cargoSchema);
+const DispatchGrp = mongoose.model('DispatchGrp', dispatchSchema);
+const BotSession  = mongoose.model('BotSession',  sessionSchema);
 
 // ── SESSION ───────────────────────────────────────────
 async function getSession(key) {
@@ -120,8 +141,10 @@ function regCard(r, forAdmin = false) {
         `▸ *ጭነት ዓይነት*  ፦ ${esc(r.cargoDesc)}\n` +
         `▸ *ክብደት*      ፦ ${esc(r.weightKg)} ኪሎ\n` +
         `▸ *ዋጋ*         ፦ ${esc(r.totalPrice)} ብር\n` +
+        (r.paymentMethod ? `▸ *ክፍያ መንገድ*  ፦ ${esc(methodById(r.paymentMethod)?.label || r.paymentMethod)}\n` : '') +
         (r.locationLat ? `▸ *ቦታ*         ፦ [Google Maps](https://maps.google.com/?q=${r.locationLat},${r.locationLng})\n` : '')  +
         `▸ *ሁኔታ*       ፦ ${statusBadge(r.status)}`;
+    if (r.aiAutoApproved) txt += `\n▸ *ማረጋገጫ*    ፦ 🤖 በAI ራስ-ሰር ተፈቅዷል`;
     if (forAdmin) {
         txt += `\n▸ *Telegram* ፦ \`${r.userId}\`` +
                (r.username ? ` @${esc(r.username)}` : '');
@@ -134,6 +157,96 @@ function mainKb() {
     rows.push(['📋 የምዝገባ ሁኔታ']);
     if (ADMIN_IDS.length) rows.push(['🔧 Admin Panel']);
     return Markup.keyboard(rows).resize();
+}
+
+// ── AI PAYMENT SCREENSHOT VERIFICATION ────────────────
+// ማስታወሻ: AI ምስልን ይተነትናል እንጂ 100% ትክክለኛ ፍርድ መስጠት አይችልም።
+// ስለዚህ ግልጽ ትክክለኛ ሲሆን ብቻ auto-approve ያደርጋል፤ ጥርጣሬ ካለ ለAdmin ይተወዋል (auto-reject በፍጹም አያደርግም)።
+async function verifyPaymentScreenshot(bot, fileId, reg) {
+    if (!anthropic) return null;
+
+    try {
+        const fileLink = await bot.telegram.getFileLink(fileId);
+        const imgRes    = await fetch(fileLink.href || fileLink.toString());
+        if (!imgRes.ok) throw new Error('image fetch failed: ' + imgRes.status);
+
+        const arrayBuffer = await imgRes.arrayBuffer();
+        const base64       = Buffer.from(arrayBuffer).toString('base64');
+        const mediaType     = imgRes.headers.get('content-type') || 'image/jpeg';
+
+        const method        = methodById(reg.paymentMethod);
+        const expectedInfo  = method ? method.info  : 'unspecified';
+        const expectedLabel = method ? method.label : 'unspecified';
+
+        const prompt =
+`You are reviewing a mobile-money or bank-transfer payment screenshot submitted by a customer of an Ethiopian cargo delivery service.
+
+The customer told us they paid via: ${expectedLabel}
+Expected payment details:
+- Recipient account/info shown on the receipt should match: "${expectedInfo}"
+- Expected amount: ${reg.totalPrice} ETB (Ethiopian Birr) — amount shown should be equal to or greater than this
+- The screenshot should be from the "${expectedLabel}" app/service specifically, not a different payment provider
+
+Carefully examine the image and assess:
+1. amount_match: does the amount shown match or exceed ${reg.totalPrice} ETB? (true/false)
+2. account_match: does the recipient account/name reasonably match "${expectedInfo}"? (true/false)
+3. method_match: does the screenshot appear to come from the "${expectedLabel}" app/service the customer claimed to use? (true/false)
+4. looks_edited: are there visible signs of digital tampering — mismatched fonts, misaligned or blurry text, inconsistent backgrounds, irregular spacing, pasted-looking elements? (true/false)
+5. looks_genuine_app: does this look like a real banking/mobile-money app screen rather than a generic edited image? (true/false)
+6. confidence: your overall confidence that this is a genuine, matching payment — "high", "medium", or "low"
+7. reason: a short explanation, written in Amharic, of your reasoning
+
+Respond with ONLY valid JSON in this exact shape, nothing else, no markdown fences:
+{"amount_match": true, "account_match": true, "method_match": true, "looks_edited": false, "looks_genuine_app": true, "confidence": "high", "reason": "..."}`;
+
+        const msg = await anthropic.messages.create({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 500,
+            messages: [{
+                role: 'user',
+                content: [
+                    { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+                    { type: 'text', text: prompt }
+                ]
+            }]
+        });
+
+        const raw = (msg.content.find(b => b.type === 'text') || {}).text || '{}';
+        const clean = raw.replace(/```json|```/g, '').trim();
+        return JSON.parse(clean);
+    } catch (err) {
+        console.error('⚠️ AI ክፍያ ማረጋገጫ ስህተት:', err.message);
+        return null; // null = AI ማረጋገጥ አልተቻለም → ለAdmin ይተወዋል
+    }
+}
+
+function aiVerdictText(result) {
+    if (!result) {
+        return '🤖 *AI ምርመራ:* ⚙️ አልተሳካም — Admin ራሱ ያረጋግጥ';
+    }
+    const { amount_match, account_match, method_match, looks_edited, looks_genuine_app, confidence, reason } = result;
+    let icon = '❓';
+    if (amount_match && account_match && method_match !== false && !looks_edited && looks_genuine_app && confidence === 'high') {
+        icon = '✅';
+    } else if (looks_edited) {
+        icon = '⚠️ ሊደባለቅ ይችላል';
+    } else if (!amount_match || !account_match || method_match === false) {
+        icon = '❌ መጠን/አካውንት/መንገድ አይመጣጠንም';
+    }
+    return `🤖 *AI ምርመራ:* ${icon}\n` +
+           `   መጠን:${amount_match ? '✅' : '❌'} አካውንት:${account_match ? '✅' : '❌'} ` +
+           `መንገድ:${method_match === false ? '❌' : '✅'} ተደባልቋል?:${looks_edited ? '⚠️አዎ' : '✅አይደለም'} እምነት:${confidence}\n` +
+           `   _${esc(reason || '')}_`;
+}
+
+function aiShouldAutoApprove(result) {
+    if (!AI_AUTO_APPROVE || !result) return false;
+    return result.amount_match === true &&
+           result.account_match === true &&
+           result.method_match !== false &&
+           result.looks_edited === false &&
+           result.looks_genuine_app === true &&
+           result.confidence === 'high';
 }
 
 // ── BOT ───────────────────────────────────────────────
@@ -264,10 +377,10 @@ bot.action('list_payments', async ctx => {
     if (!regs.length) return ctx.reply('✅ ምንም ያልተረጋገጠ ክፍያ የለም።');
     await ctx.reply(`🔍 *${regs.length}* ክፍያ ይጠብቃል:`, { parse_mode: 'Markdown' });
     for (const r of regs) {
-        // Send payment screenshot if exists
+        const caption = (r.aiVerdict ? aiVerdictText(r.aiVerdict) + '\n\n' : '') + regCard(r, true);
         if (r.paymentFileId) {
             await bot.telegram.sendPhoto(ctx.chat.id, r.paymentFileId, {
-                caption: regCard(r, true),
+                caption,
                 parse_mode: 'Markdown',
                 ...Markup.inlineKeyboard([
                     [
@@ -277,7 +390,7 @@ bot.action('list_payments', async ctx => {
                 ])
             });
         } else {
-            await ctx.reply(regCard(r, true), {
+            await ctx.reply(caption, {
                 parse_mode: 'Markdown',
                 ...Markup.inlineKeyboard([
                     [
@@ -298,9 +411,10 @@ bot.action(/^pay_ok_([a-f\d]{24})$/i, async ctx => {
         ctx.match[1], { status: 'approved' }, { new: true }
     );
     if (!reg) return ctx.reply('❗ አልተገኘም።');
+    const newText = regCard(reg.toObject(), true);
     ctx.editMessageCaption
-        ? ctx.editMessageCaption(regCard(reg.toObject(), true), { parse_mode: 'Markdown' }).catch(()=>{})
-        : ctx.editMessageText(regCard(reg.toObject(), true), { parse_mode: 'Markdown' }).catch(()=>{});
+        ? ctx.editMessageCaption(newText, { parse_mode: 'Markdown' }).catch(()=>{})
+        : ctx.editMessageText(newText, { parse_mode: 'Markdown' }).catch(()=>{});
     bot.telegram.sendMessage(reg.userId,
         `✅ *ክፍያዎ ተረጋግጧል!*\n\n` +
         `${routeById(reg.routeId)?.emoji} *${esc(routeById(reg.routeId)?.label)}*\n\n` +
@@ -317,9 +431,10 @@ bot.action(/^pay_no_([a-f\d]{24})$/i, async ctx => {
         ctx.match[1], { status: 'rejected' }, { new: true }
     );
     if (!reg) return ctx.reply('❗ አልተገኘም።');
+    const newText = regCard(reg.toObject(), true);
     ctx.editMessageCaption
-        ? ctx.editMessageCaption(regCard(reg.toObject(), true), { parse_mode: 'Markdown' }).catch(()=>{})
-        : ctx.editMessageText(regCard(reg.toObject(), true), { parse_mode: 'Markdown' }).catch(()=>{});
+        ? ctx.editMessageCaption(newText, { parse_mode: 'Markdown' }).catch(()=>{})
+        : ctx.editMessageText(newText, { parse_mode: 'Markdown' }).catch(()=>{});
     bot.telegram.sendMessage(reg.userId,
         `❌ ክፍያዎ ተቀባይነት አላገኘም። ለበለጠ: \`${SUPPORT_PHONE}\``,
         { parse_mode: 'Markdown' }
@@ -426,7 +541,6 @@ bot.action(/^collect_(.+)$/, async ctx => {
 
 // ── ADMIN: receive location → sort by distance ────────
 bot.on('location', async (ctx, next) => {
-    // If this is admin collecting
     if (ctx.session?.action === 'COLLECT_LOCATION' && isAdmin(ctx)) {
         const { latitude: aLat, longitude: aLng } = ctx.message.location;
         const routeId = ctx.session.collectRouteId;
@@ -446,7 +560,6 @@ bot.on('location', async (ctx, next) => {
             );
         }
 
-        // Calculate distance (Haversine formula)
         function distKm(lat1, lng1, lat2, lng2) {
             const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -458,7 +571,6 @@ bot.on('location', async (ctx, next) => {
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
-        // Sort by distance — ቅርብ ቀደም
         const sorted = members
             .map(r => ({
                 ...r,
@@ -508,40 +620,68 @@ bot.on('location', async (ctx, next) => {
         return;
     }
 
-    // Otherwise pass to next handler (user registration location)
     return next();
 });
 
 // ── USER LOCATION — registration step 5 ──────────────
 bot.on('location', async ctx => {
     if (ctx.session?.action !== 'REG_5') return;
-    const uid = ctx.from.id;
     const { latitude, longitude } = ctx.message.location;
+    ctx.session.regData.locationLat = latitude;
+    ctx.session.regData.locationLng = longitude;
+    ctx.session.action = 'REG_PAYMETHOD';
+
+    await ctx.reply(
+        `📍 ቦታ ደርሷል!\n\n` +
+        `\`[ክፍያ]\` 💳 *በምን ይከፍላሉ?*`,
+        {
+            parse_mode: 'Markdown',
+            ...Markup.inlineKeyboard(
+                PAYMENT_METHODS.map(m => [
+                    Markup.button.callback(`${m.emoji} ${m.label}`, `paymethod_${m.id}`)
+                ])
+            )
+        }
+    );
+});
+
+// ── PAYMENT METHOD SELECTED → create registration ─────
+bot.action(/^paymethod_(.+)$/, async ctx => {
+    ctx.answerCbQuery().catch(()=>{});
+    if (ctx.session?.action !== 'REG_PAYMETHOD') return;
+    const method = methodById(ctx.match[1]);
+    if (!method) return ctx.reply('⚠️ ያልታወቀ ክፍያ መንገድ።');
+
+    const uid     = ctx.from.id;
     const d       = ctx.session.regData;
     const routeId = ctx.session.routeId;
     ctx.session.action  = null;
     ctx.session.regData = {};
+    ctx.session.routeId = null;
 
     const reg = await CargoReg.create({
-        userId:      uid,
-        username:    ctx.from.username || '',
-        fullName:    d.fullName,
-        phone:       d.phone,
+        userId:        uid,
+        username:      ctx.from.username || '',
+        fullName:      d.fullName,
+        phone:         d.phone,
         routeId,
-        cargoDesc:   d.cargoDesc,
-        weightKg:    d.weightKg,
-        totalPrice:  d.totalPrice,
-        locationLat: latitude,
-        locationLng: longitude,
-        status:      'pending_payment'
+        cargoDesc:     d.cargoDesc,
+        weightKg:      d.weightKg,
+        totalPrice:    d.totalPrice,
+        locationLat:   d.locationLat,
+        locationLng:   d.locationLng,
+        paymentMethod: method.id,
+        status:        'pending_payment'
     });
+
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(()=>{});
 
     await ctx.reply(
         `✅ *ምዝገባ ደርሷል!*\n\n` +
         regCard(reg.toObject()) + `\n\n` +
         `━━━━━━━━━━━━━━━\n` +
-        `💳 አሁን *${reg.totalPrice} ብር* ወደ ታች ወደ ተጻፈው ቁጥር ይላኩ:\n` +
-        `\`${PAYMENT_INFO}\`\n\n` +
+        `💳 አሁን *${reg.totalPrice} ብር* ${method.emoji} *${esc(method.label)}* ወደ ታች ወደ ተጻፈው ይላኩ:\n` +
+        `\`${method.info}\`\n\n` +
         `ከፍለው ከጨረሱ 📸 *የክፍያ screenshot* ይላኩ።`,
         { parse_mode: 'Markdown', ...mainKb() }
     );
@@ -551,10 +691,11 @@ bot.on('location', async ctx => {
             `🔔 *አዲስ ምዝገባ!*\n\n${regCard(reg.toObject(), true)}`,
             { parse_mode: 'Markdown' }
         ).catch(()=>{});
-        bot.telegram.sendLocation(adminId, latitude, longitude).catch(()=>{});
+        if (d.locationLat) {
+            bot.telegram.sendLocation(adminId, d.locationLat, d.locationLng).catch(()=>{});
+        }
     }
 });
-
 
 bot.on('text', async (ctx, next) => {
     const action = ctx.session?.action;
@@ -562,7 +703,6 @@ bot.on('text', async (ctx, next) => {
     const text = ctx.message.text.trim();
     const uid  = ctx.from.id;
 
-    // Registration steps
     if (action === 'REG_1') {
         ctx.session.regData = { fullName: text };
         ctx.session.action  = 'REG_2';
@@ -593,55 +733,17 @@ bot.on('text', async (ctx, next) => {
             `👇 ከታች ያለውን 📎 ቁልፍ ጫኑ → _Location_ ይምረጡ`,
             {
                 parse_mode: 'Markdown',
-                ...require('telegraf').Markup.keyboard([
-                    [require('telegraf').Markup.button.locationRequest('📍 ቦታዬን አጋራ')]
+                ...Markup.keyboard([
+                    [Markup.button.locationRequest('📍 ቦታዬን አጋራ')]
                 ]).resize().oneTime()
             }
         );
     }
     if (action === 'REG_5') {
-        // Text received instead of location
         return ctx.reply('📍 *ቦታዎን ያጋሩ* — ከታች ያለውን ቁልፍ ይጫኑ።', { parse_mode: 'Markdown' });
     }
-    // dummy to keep structure — real REG_5 handled in location handler
-    if (action === 'REG_SAVE') {
-        const d = ctx.session.regData;
-        const routeId = ctx.session.routeId;
-        ctx.session.action  = null;
-        ctx.session.regData = {};
-
-        const reg = await CargoReg.create({
-            userId:      uid,
-            username:    ctx.from.username || '',
-            fullName:    d.fullName,
-            phone:       d.phone,
-            routeId,
-            cargoDesc:   d.cargoDesc,
-            weightKg:    d.weightKg,
-            totalPrice:  d.totalPrice,
-            locationLat: d.locationLat || null,
-            locationLng: d.locationLng || null,
-            status:      'pending_payment'
-        });
-
-        await ctx.reply(
-            `✅ *ምዝገባ ደርሷል!*\n\n` +
-            regCard(reg.toObject()) + `\n\n` +
-            `━━━━━━━━━━━━━━━\n` +
-            `💳 አሁን *${reg.totalPrice} ብር* ወደ ታች ወደ ተጻፈው ቁጥር ይላኩ:\n` +
-            `\`${PAYMENT_INFO}\`\n\n` +
-            `ከፍለው ከጨረሱ 📸 *የክፍያ screenshot* ይላኩ።`,
-            { parse_mode: 'Markdown', ...mainKb() }
-        );
-
-        // Notify admins
-        for (const adminId of ADMIN_IDS) {
-            bot.telegram.sendMessage(adminId,
-                `🔔 *አዲስ ምዝገባ!*\n\n${regCard(reg.toObject(), true)}`,
-                { parse_mode: 'Markdown' }
-            ).catch(()=>{});
-        }
-        return;
+    if (action === 'REG_PAYMETHOD') {
+        return ctx.reply('💳 *ከላይ ካለው ዝርዝር ክፍያ መንገድ ይምረጡ* (ቁልፍ ይጫኑ)።', { parse_mode: 'Markdown' });
     }
 
     // Dispatch note
@@ -690,11 +792,9 @@ bot.on('text', async (ctx, next) => {
     return next();
 });
 
-
-// ── PHOTO HANDLER (payment screenshot) ───────────────
+// ── PHOTO HANDLER (payment screenshot + AI verification) ─
 bot.on('photo', async ctx => {
     const uid = ctx.from.id;
-    // Check if user has a pending_payment registration
     const reg = await CargoReg.findOne({
         userId: uid, status: 'pending_payment'
     }).sort({ createdAt: -1 });
@@ -714,19 +814,49 @@ bot.on('photo', async ctx => {
 
     await ctx.reply(
         `📸 *ክፍያ ምስል ደርሷል!*\n\n` +
-        `Admin እያረጋገጠ ነው — ትንሽ ይጠብቁ።\n` +
-        `❓ ለጥያቄ: \`${SUPPORT_PHONE}\``,
-        { parse_mode: 'Markdown', ...mainKb() }
+        `🤖 በራስ-ሰር በማረጋገጥ ላይ... ትንሽ ይጠብቁ።`,
+        { parse_mode: 'Markdown' }
     );
 
-    // Forward to admins with action buttons
+    // 🤖 AI ምስሉን ይተንታል
+    const result = await verifyPaymentScreenshot(bot, fileId, reg);
+    reg.aiVerdict = result;
+
+    let autoApproved = false;
+    if (aiShouldAutoApprove(result)) {
+        reg.status         = 'approved';
+        reg.aiAutoApproved  = true;
+        autoApproved        = true;
+    }
+    await reg.save();
+
+    if (autoApproved) {
+        await bot.telegram.sendMessage(uid,
+            `✅ *ክፍያዎ በራስ-ሰር ተረጋግጧል!*\n\n` +
+            `${routeById(reg.routeId)?.emoji} *${esc(routeById(reg.routeId)?.label)}*\n\n` +
+            `ቡድኑ ሲዘጋጅ ይነገርዎታል።\n❓ ለጥያቄ: \`${SUPPORT_PHONE}\``,
+            { parse_mode: 'Markdown' }
+        ).catch(()=>{});
+    } else {
+        await bot.telegram.sendMessage(uid,
+            `🔍 Admin እያረጋገጠ ነው — ትንሽ ይጠብቁ።\n` +
+            `❓ ለጥያቄ: \`${SUPPORT_PHONE}\``,
+            { parse_mode: 'Markdown' }
+        ).catch(()=>{});
+    }
+
+    // Admin ሁልጊዜ AI ትንታኔ + buttons ይደርሰዋል (auto-approved ቢሆንም ለ oversight)
+    const caption = aiVerdictText(result) + '\n\n' +
+        (autoApproved ? '✅ *AI በራስ-ሰር ፈቅዷል*\n\n' : '') +
+        regCard(reg.toObject(), true);
+
     for (const adminId of ADMIN_IDS) {
         bot.telegram.sendPhoto(adminId, fileId, {
-            caption: `💳 *አዲስ ክፍያ ማረጋገጫ!*\n\n${regCard(reg.toObject(), true)}`,
+            caption,
             parse_mode: 'Markdown',
             ...Markup.inlineKeyboard([
                 [
-                    Markup.button.callback('✅ ፈቀድ',  `pay_ok_${reg._id}`),
+                    Markup.button.callback(autoApproved ? '↩️ ይቅር (Reject)' : '✅ ፈቀድ', autoApproved ? `pay_no_${reg._id}` : `pay_ok_${reg._id}`),
                     Markup.button.callback('❌ ከልክል', `pay_no_${reg._id}`)
                 ]
             ])
@@ -743,7 +873,6 @@ mongoose.connect(MONGO_URI)
     .then(() => {
         console.log('✅ MongoDB ተገናኘ');
 
-        // HTTP server for Render Web Service port binding
         http.createServer((req, res) => {
             res.writeHead(200, { 'Content-Type': 'text/plain' });
             res.end('OK');
@@ -751,7 +880,6 @@ mongoose.connect(MONGO_URI)
             console.log('✅ HTTP server port ' + PORT);
         });
 
-        // Self-ping every 10 min — prevents Render free tier spin-down
         const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
         if (RENDER_URL) {
             setInterval(() => {
