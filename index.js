@@ -654,16 +654,16 @@ bot.action(/^paymethod_(.+)$/, async ctx => {
 
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(()=>{});
 
+    const payNum = method.info.includes(':')
+        ? method.info.split(':').slice(1).join(':').trim()
+        : method.info;
+
     await ctx.reply(
-        `✅ *ምዝገባ ደርሷል!*\n\n` +
-        regCard(reg.toObject()) + `\n\n` +
-        `━━━━━━━━━━━━━━━\n` +
-        `💳 አሁን *${reg.totalPrice} ብር* ${method.emoji} *${esc(method.label)}* ወደ ታች ወደ ተጻፈው ይላኩ:\n` +
-        `\`${method.info}\`\n\n` +
-        `ከፍለው ከጨረሱ 📸 *የክፍያ screenshot* ይላኩ።`,
+        `💳 *${reg.totalPrice} ብር* በ\`${payNum}\` ${method.emoji} *${esc(method.label)}* ይክፈሉ።\n\n` +
+        `ከከፈሉ በኋላ 📸 *የክፍያ screenshot* ይላኩ።`,
         { parse_mode: 'Markdown', ...mainKb() }
     );
-    // ማስታወሻ: ለAdmin የሚደርሰው ማሳወቂያ ክፍያ screenshot ከደረሰ በኋላ ብቻ ነው (ከታች photo handler ይመልከቱ)።
+    // ማስታወሻ: "ምዝገባ ደርሷል" ካርድ + ለAdmin ማሳወቂያ ክፍያ screenshot ከደረሰ በኋላ ብቻ ነው (ከታች photo handler ይመልከቱ)።
 });
 
 // ── USER LOCATION — final step, AFTER payment is sent ─
@@ -826,13 +826,15 @@ bot.on('photo', async ctx => {
 
     if (autoApproved) {
         await bot.telegram.sendMessage(uid,
-            `✅ *ክፍያዎ በራስ-ሰር ተረጋግጧል!*\n\n` +
-            `${routeById(reg.routeId)?.emoji} *${esc(routeById(reg.routeId)?.label)}*\n\n` +
+            `✅ *ምዝገባ ደርሷል — ክፍያዎ በራስ-ሰር ተረጋግጧል!*\n\n` +
+            regCard(reg.toObject()) + `\n\n` +
             `ቡድኑ ሲዘጋጅ ይነገርዎታል።\n❓ ለጥያቄ: \`${SUPPORT_PHONE}\``,
             { parse_mode: 'Markdown' }
         ).catch(()=>{});
     } else {
         await bot.telegram.sendMessage(uid,
+            `✅ *ምዝገባ ደርሷል!*\n\n` +
+            regCard(reg.toObject()) + `\n\n` +
             `🔍 Admin እያረጋገጠ ነው — ትንሽ ይጠብቁ።\n` +
             `❓ ለጥያቄ: \`${SUPPORT_PHONE}\``,
             { parse_mode: 'Markdown' }
