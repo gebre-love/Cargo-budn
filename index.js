@@ -535,19 +535,42 @@ bot.on('photo', async ctx => {
 });
 
 // ── LAUNCH ────────────────────────────────────────────
-const http = require('http');
-const PORT = Number(process.env.PORT) || 3000;
+const http  = require('http');
+const https = require('https');
+const PORT  = Number(process.env.PORT) || 3000;
 
 mongoose.connect(MONGO_URI)
     .then(() => {
         console.log('✅ MongoDB ተገናኘ');
-        // Keep-alive HTTP server for Render Web Service
-        http.createServer((_, res) => res.end('OK')).listen(PORT, () => {
-            console.log(`✅ HTTP server port ${PORT}`);
+
+        // HTTP server for Render Web Service port binding
+        http.createServer((req, res) => {
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end('OK');
+        }).listen(PORT, () => {
+            console.log('✅ HTTP server port ' + PORT);
         });
+
+        // Self-ping every 10 min — prevents Render free tier spin-down
+        const RENDER_URL = process.env.RENDER_EXTERNAL_URL || '';
+        if (RENDER_URL) {
+            setInterval(() => {
+                try {
+                    const url = new URL(RENDER_URL);
+                    const req2 = https.request(
+                        { hostname: url.hostname, path: '/', method: 'GET' },
+                        r => { console.log('🔄 Keep-alive ' + r.statusCode); }
+                    );
+                    req2.on('error', () => {});
+                    req2.end();
+                } catch (_) {}
+            }, 10 * 60 * 1000);
+            console.log('✅ Keep-alive ተቀናብሯል → ' + RENDER_URL);
+        }
+
         return bot.launch({ dropPendingUpdates: true });
     })
-    .then(() => console.log('✅ Bot ጀምሯል'))
+    .then(() => console.log('✅ Bot ጀምሯል 24/7'))
     .catch(err => { console.error('❌', err.message); process.exit(1); });
 
 process.once('SIGINT',  () => { try { bot.stop('SIGINT');  } catch(_){} process.exit(0); });
