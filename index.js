@@ -404,65 +404,154 @@ bot.action('collect_choose', async ctx => {
     });
 });
 
-// ── ADMIN: collection list — show members ─────────────
+// ── ADMIN: collection list — ask admin location first ─
 bot.action(/^collect_(.+)$/, async ctx => {
     if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(()=>{});
     ctx.answerCbQuery().catch(()=>{});
     const routeId = ctx.match[1];
-    const route   = routeById(routeId);
-
-    // Get all approved members for this route
-    const members = await CargoReg.find({
-        routeId,
-        status: { $in: ['approved', 'pending_payment', 'payment_review'] }
-    }).sort({ createdAt: 1 }).lean();
-
-    if (!members.length) {
-        return ctx.reply(
-            `🗺️ ${route?.emoji} *${esc(route?.label)}*\n\n📭 ምንም ዝግጁ ተጠቃሚ የለም።`,
-            { parse_mode: 'Markdown' }
-        );
-    }
-
-    // Summary header
-    const totalKg  = members.reduce((s, r) => s + (r.weightKg  || 0), 0);
-    const totalBirr= members.reduce((s, r) => s + (r.totalPrice|| 0), 0);
-
+    ctx.session.action          = 'COLLECT_LOCATION';
+    ctx.session.collectRouteId  = routeId;
     await ctx.reply(
-        `🗺️ *${esc(route?.label)} — ሰብሳቢ ዝርዝር*\n` +
-        `━━━━━━━━━━━━━━━\n` +
-        `👥 ሰዎች: *${members.length}*\n` +
-        `⚖️ ጠቅላላ ክብደት: *${totalKg} ኪሎ*\n` +
-        `💰 ጠቅላላ ዋጋ: *${totalBirr} ብር*\n` +
-        `━━━━━━━━━━━━━━━`,
-        { parse_mode: 'Markdown' }
+        `🗺️ *${esc(routeById(routeId)?.label)}*\n\n` +
+        `📍 *የእርስዎን አሁናዊ ቦታ ያጋሩ*\n` +
+        `ቅርብ ቦታ ቀደም ብሎ እንዲታይ:`,
+        {
+            parse_mode: 'Markdown',
+            ...Markup.keyboard([
+                [Markup.button.locationRequest('📍 ቦታዬን አጋራ')]
+            ]).resize().oneTime()
+        }
     );
+});
 
-    // Send each member card + location
-    for (let i = 0; i < members.length; i++) {
-        const r = members[i];
-        const statusIcon = {
-            pending_payment: '⏳',
-            payment_review:  '🔍',
-            approved:        '✅'
-        }[r.status] || '❓';
+// ── ADMIN: receive location → sort by distance ────────
+bot.on('location', async (ctx, next) => {
+    // If this is admin collecting
+    if (ctx.session?.action === 'COLLECT_LOCATION' && isAdmin(ctx)) {
+        const { latitude: aLat, longitude: aLng } = ctx.message.location;
+        const routeId = ctx.session.collectRouteId;
+        const route   = routeById(routeId);
+        ctx.session.action         = null;
+        ctx.session.collectRouteId = null;
 
-        const card =
-            `*${i + 1}. ${esc(r.fullName)}* ${statusIcon}\n` +
-            `📞 \`${esc(r.phone)}\`\n` +
-            `📦 ${esc(r.cargoDesc)} — *${r.weightKg} ኪሎ*\n` +
-            `💳 *${r.totalPrice} ብር*`;
+        const members = await CargoReg.find({
+            routeId,
+            status: { $in: ['approved', 'pending_payment', 'payment_review'] }
+        }).lean();
 
-        if (r.locationLat && r.locationLng) {
-            // Send text card then actual location pin
-            await ctx.reply(card, { parse_mode: 'Markdown' });
-            await bot.telegram.sendLocation(ctx.chat.id, r.locationLat, r.locationLng);
-        } else {
-            await ctx.reply(
-                card + `\n📍 _ቦታ አልተላከም_`,
-                { parse_mode: 'Markdown' }
+        if (!members.length) {
+            return ctx.reply(
+                `📭 ${route?.emoji} *${esc(route?.label)}* — ምንም ዝግጁ ተጠቃሚ የለም።`,
+                { parse_mode: 'Markdown', ...mainKb() }
             );
         }
+
+        // Calculate distance (Haversine formula)
+        function distKm(lat1, lng1, lat2, lng2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2)**2 +
+                      Math.cos(lat1 * Math.PI/180) *
+                      Math.cos(lat2 * Math.PI/180) *
+                      Math.sin(dLng/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        // Sort by distance — ቅርብ ቀደም
+        const sorted = members
+            .map(r => ({
+                ...r,
+                distKm: r.locationLat
+                    ? distKm(aLat, aLng, r.locationLat, r.locationLng)
+                    : 9999
+            }))
+            .sort((a, b) => a.distKm - b.distKm);
+
+        const totalKg   = sorted.reduce((s, r) => s + (r.weightKg   || 0), 0);
+        const totalBirr = sorted.reduce((s, r) => s + (r.totalPrice || 0), 0);
+
+        await ctx.reply(
+            `🗺️ *${esc(route?.label)} — ሰብሳቢ ዝርዝር*\n` +
+            `━━━━━━━━━━━━━━━\n` +
+            `👥 ሰዎች: *${sorted.length}*\n` +
+            `⚖️ ጠቅላላ ክብደት: *${totalKg} ኪሎ*\n` +
+            `💰 ጠቅላላ ዋጋ: *${totalBirr} ብር*\n` +
+            `📌 ቅርብ ቦታ ቀደም ብሎ ታይቷል`,
+            { parse_mode: 'Markdown', ...mainKb() }
+        );
+
+        for (let i = 0; i < sorted.length; i++) {
+            const r = sorted[i];
+            const statusIcon = {
+                pending_payment: '⏳',
+                payment_review:  '🔍',
+                approved:        '✅'
+            }[r.status] || '❓';
+
+            const dist = r.distKm < 9999
+                ? `📏 *${r.distKm.toFixed(1)} ኪሜ ርቀት*`
+                : `📍 _ቦታ አልተላከም_`;
+
+            const card =
+                `*${i + 1}. ${esc(r.fullName)}* ${statusIcon}\n` +
+                `📞 \`${esc(r.phone)}\`\n` +
+                `📦 ${esc(r.cargoDesc)} — *${r.weightKg} ኪሎ*\n` +
+                `💳 *${r.totalPrice} ብር*\n` +
+                dist;
+
+            await ctx.reply(card, { parse_mode: 'Markdown' });
+            if (r.locationLat && r.locationLng) {
+                await bot.telegram.sendLocation(ctx.chat.id, r.locationLat, r.locationLng);
+            }
+        }
+        return;
+    }
+
+    // Otherwise pass to next handler (user registration location)
+    return next();
+});
+
+// ── USER LOCATION — registration step 5 ──────────────
+bot.on('location', async ctx => {
+    if (ctx.session?.action !== 'REG_5') return;
+    const uid = ctx.from.id;
+    const { latitude, longitude } = ctx.message.location;
+    const d       = ctx.session.regData;
+    const routeId = ctx.session.routeId;
+    ctx.session.action  = null;
+    ctx.session.regData = {};
+
+    const reg = await CargoReg.create({
+        userId:      uid,
+        username:    ctx.from.username || '',
+        fullName:    d.fullName,
+        phone:       d.phone,
+        routeId,
+        cargoDesc:   d.cargoDesc,
+        weightKg:    d.weightKg,
+        totalPrice:  d.totalPrice,
+        locationLat: latitude,
+        locationLng: longitude,
+        status:      'pending_payment'
+    });
+
+    await ctx.reply(
+        `✅ *ምዝገባ ደርሷል!*\n\n` +
+        regCard(reg.toObject()) + `\n\n` +
+        `━━━━━━━━━━━━━━━\n` +
+        `💳 አሁን *${reg.totalPrice} ብር* ወደ ታች ወደ ተጻፈው ቁጥር ይላኩ:\n` +
+        `\`${PAYMENT_INFO}\`\n\n` +
+        `ከፍለው ከጨረሱ 📸 *የክፍያ screenshot* ይላኩ።`,
+        { parse_mode: 'Markdown', ...mainKb() }
+    );
+
+    for (const adminId of ADMIN_IDS) {
+        bot.telegram.sendMessage(adminId,
+            `🔔 *አዲስ ምዝገባ!*\n\n${regCard(reg.toObject(), true)}`,
+            { parse_mode: 'Markdown' }
+        ).catch(()=>{});
+        bot.telegram.sendLocation(adminId, latitude, longitude).catch(()=>{});
     }
 });
 
@@ -601,55 +690,6 @@ bot.on('text', async (ctx, next) => {
     return next();
 });
 
-
-// ── LOCATION HANDLER (registration step 5) ───────────
-bot.on('location', async ctx => {
-    const uid = ctx.from.id;
-    if (ctx.session?.action !== 'REG_5') return;
-
-    const { latitude, longitude } = ctx.message.location;
-    ctx.session.regData.locationLat = latitude;
-    ctx.session.regData.locationLng = longitude;
-
-    const d       = ctx.session.regData;
-    const routeId = ctx.session.routeId;
-    ctx.session.action  = null;
-
-    const reg = await CargoReg.create({
-        userId:      uid,
-        username:    ctx.from.username || '',
-        fullName:    d.fullName,
-        phone:       d.phone,
-        routeId,
-        cargoDesc:   d.cargoDesc,
-        weightKg:    d.weightKg,
-        totalPrice:  d.totalPrice,
-        locationLat: latitude,
-        locationLng: longitude,
-        status:      'pending_payment'
-    });
-    ctx.session.regData = {};
-
-    const route = routeById(routeId);
-    await ctx.reply(
-        `✅ *ምዝገባ ደርሷል!*\n\n` +
-        regCard(reg.toObject()) + `\n\n` +
-        `━━━━━━━━━━━━━━━\n` +
-        `💳 አሁን *${reg.totalPrice} ብር* ወደ ታች ወደ ተጻፈው ቁጥር ይላኩ:\n` +
-        `\`${PAYMENT_INFO}\`\n\n` +
-        `ከፍለው ከጨረሱ 📸 *የክፍያ screenshot* ይላኩ።`,
-        { parse_mode: 'Markdown', ...mainKb() }
-    );
-
-    // Notify admins with location
-    for (const adminId of ADMIN_IDS) {
-        bot.telegram.sendMessage(adminId,
-            `🔔 *አዲስ ምዝገባ!*\n\n${regCard(reg.toObject(), true)}`,
-            { parse_mode: 'Markdown' }
-        ).catch(()=>{});
-        bot.telegram.sendLocation(adminId, latitude, longitude).catch(()=>{});
-    }
-});
 
 // ── PHOTO HANDLER (payment screenshot) ───────────────
 bot.on('photo', async ctx => {
