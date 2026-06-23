@@ -317,10 +317,9 @@ ROUTES.forEach(route => {
         ctx.session.action  = 'REG_1';
         ctx.session.routeId = route.id;
         ctx.session.regData = {};
+        await ctx.reply(`${route.emoji} *${esc(route.label)}*`, { parse_mode: 'Markdown' });
         return ctx.reply(
-            `${route.emoji} *${esc(route.label)}*\n\n` +
-            `*[1/3]* 👤 *ስምዎን እና ስልክ ቁጥርዎን ያስገቡ:*\n` +
-            `_ምሳሌ: አበበ በቀለ / 0911223344_`,
+            `👤 *ስምዎን እና ስልክ ቁጥርዎን ያስገቡ:*\n_ምሳሌ: አበበ በቀለ / 0911223344_`,
             { parse_mode: 'Markdown' }
         );
     });
@@ -759,10 +758,9 @@ bot.on('text', async (ctx, next) => {
         }
         ctx.session.regData = { fullName, phone: phone.replace(/\s/g,'') };
         ctx.session.action  = 'REG_2';
+        await ctx.reply(`✅ *${esc(fullName)}* — \`${esc(phone)}\``, { parse_mode: 'Markdown' });
         return ctx.reply(
-            `✅ *${esc(fullName)}* — \`${esc(phone)}\`\n\n` +
-            `*[2/3]* 📦 *ጭነት ዓይነት እና ክብደት ያስገቡ:*\n` +
-            `_ምሳሌ: ሲሚንቶ / 50_`,
+            `📦 *ምን ዓይነት ጭነት? ክብደቱ ስንት ኪሎ?*\n_ምሳሌ: ሲሚንቶ / 50_`,
             { parse_mode: 'Markdown' }
         );
     }
@@ -796,9 +794,9 @@ bot.on('text', async (ctx, next) => {
         ctx.session.regData.weightKg   = kg;
         ctx.session.regData.totalPrice = totalPrice;
         ctx.session.action = 'REG_PAYMETHOD';
+        await ctx.reply(`✅ *${esc(cargoDesc)}* — *${kg} ኪሎ* — *${totalPrice} ብር*`, { parse_mode: 'Markdown' });
         return ctx.reply(
-            `✅ *${esc(cargoDesc)}* — *${kg} ኪሎ* — *${totalPrice} ብር*\n\n` +
-            `*[3/3]* 💳 *ክፍያ መንገድ ይምረጡ:*`,
+            `💳 *ክፍያ መንገድ ይምረጡ:*`,
             {
                 parse_mode: 'Markdown',
                 ...Markup.inlineKeyboard(
