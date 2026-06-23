@@ -12,6 +12,7 @@ const ADMIN_IDS       = (process.env.ADMIN_IDS || '')
 const PRICE_PER_KG    =  10;
 const ANTHROPIC_KEY   =  process.env.ANTHROPIC_API_KEY || '';
 const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
+const CHANNEL_ID     =  process.env.CHANNEL_ID || '-1004445473795'; // ቤት ለቤት ጭነት አገልግሎት
 const TRUCK_CAPACITY  =  10000; // ኪሎ
 
 if (!BOT_TOKEN || !MONGO_URI) {
@@ -180,6 +181,17 @@ async function broadcastRouteStatus(routeId, bot, excludeUserId = null) {
         try {
             await bot.telegram.sendMessage(userId, card, { parse_mode: 'Markdown' });
         } catch (_) {}
+    }
+}
+
+// ── Send announcement to channel ─────────────────────
+async function sendToChannel(bot, text) {
+    try {
+        await bot.telegram.sendMessage(CHANNEL_ID, text, { parse_mode: 'Markdown' });
+        return true;
+    } catch (err) {
+        console.error('Channel send error:', err.message);
+        return false;
     }
 }
 
@@ -361,7 +373,8 @@ bot.hears('🔧 Admin Panel', async ctx => {
             [Markup.button.callback('🔍 ክፍያ ያልተረጋገጡ', 'list_payments')],
             [Markup.button.callback('🗺️ ሰብሳቢ ዝርዝር', 'collect_choose')],
             [Markup.button.callback('🚚 ቡድን ላክ', 'dispatch_choose')],
-            [Markup.button.callback('📊 ጠቅላላ ሪፖርት', 'rep_all')]
+            [Markup.button.callback('📊 ጠቅላላ ሪፖርት', 'rep_all')],
+            [Markup.button.callback('📢 ማስታወቂያ ላክ', 'announce')]
         ])
     });
 });
@@ -857,6 +870,17 @@ bot.on('text', async (ctx, next) => {
         );
     }
 
+    // Announce text (admin)
+    if (action === 'ANNOUNCE_TEXT') {
+        if (!isAdmin(ctx)) { ctx.session.action = null; return next(); }
+        ctx.session.action = null;
+        const ok = await sendToChannel(bot, text);
+        return ctx.reply(
+            ok ? '✅ ማስታወቂያ ወደ channel ተላከ!' : '❌ Channel ላይ መላክ አልተቻለም። Channel ID ያረጋግጡ።',
+            { parse_mode: 'Markdown', ...mainKb() }
+        );
+    }
+
     return next();
 });
 
@@ -961,6 +985,20 @@ bot.on('photo', async ctx => {
     // Broadcast route status update to all OTHER registrants (sender already got location prompt)
     await broadcastRouteStatus(reg.routeId, bot, uid);
 });
+
+// ── ADMIN: announce to channel ───────────────────────
+bot.action('announce', async ctx => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(()=>{});
+    ctx.answerCbQuery().catch(()=>{});
+    ctx.session.action = 'ANNOUNCE_TEXT';
+    await ctx.reply(
+        '📢 *ለ channel ሊላክ የሚፈልጉትን ማስታወቂያ ይጻፉ:*',
+        { parse_mode: 'Markdown' }
+    );
+});
+
+// ── ANNOUNCE TEXT handler (in text middleware) ────────
+// handled inside bot.on('text') below via ANNOUNCE_TEXT action
 
 // ── LAUNCH ────────────────────────────────────────────
 const http  = require('http');
