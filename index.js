@@ -143,7 +143,7 @@ function regCard(r, forAdmin = false) {
     return txt;
 }
 
-// ── NEW: Route status card (truck fill info) ──────────
+// ── Route status card (truck fill info) ──────────────
 async function routeStatusCard(routeId) {
     const route = routeById(routeId);
     const regs  = await CargoReg.find({
@@ -151,38 +151,31 @@ async function routeStatusCard(routeId) {
         status: { $in: ['pending_payment', 'payment_review', 'approved'] }
     }).lean();
 
-    const totalKg      = regs.reduce((s, r) => s + (r.weightKg || 0), 0);
-    const approvedKg   = regs.filter(r => r.status === 'approved')
-                             .reduce((s, r) => s + (r.weightKg || 0), 0);
-    const remainingKg  = Math.max(0, TRUCK_CAPACITY - totalKg);
-    const pct          = Math.min(100, Math.round((totalKg / TRUCK_CAPACITY) * 100));
+    const totalKg     = regs.reduce((s, r) => s + (r.weightKg || 0), 0);
+    const remainingKg = Math.max(0, TRUCK_CAPACITY - totalKg);
+    const pct         = Math.min(100, Math.round((totalKg / TRUCK_CAPACITY) * 100));
 
-    // Progress bar (10 blocks)
-    const filled  = Math.round(pct / 10);
-    const empty   = 10 - filled;
-    const bar     = '█'.repeat(filled) + '░'.repeat(empty);
+    const filled = Math.round(pct / 10);
+    const bar    = '█'.repeat(filled) + '░'.repeat(10 - filled);
 
     return (
-        `${route?.emoji} *${esc(route?.label)} — የጫካ ሁኔታ*\n` +
-        `━━━━━━━━━━━━━━━\n` +
-        `👥 ተመዝጋቢዎች ፦ *${regs.length}* ሰዎች\n` +
-        `⚖️ ጠቅላላ ክብደት  ፦ *${totalKg.toLocaleString()} / ${TRUCK_CAPACITY.toLocaleString()} ኪሎ*\n` +
-        `✅ የፈቀደ ክብደት  ፦ *${approvedKg.toLocaleString()} ኪሎ*\n` +
-        `📦 የቀረ ቦታ      ፦ *${remainingKg.toLocaleString()} ኪሎ*\n` +
-        `\n\`${bar}\` ${pct}%\n` +
-        `\n_መኪናው ሙሉ በሙሉ ሲሞላ (${TRUCK_CAPACITY.toLocaleString()} ኪሎ) ቡድን ይላካል።_`
+        `${route?.emoji} *${esc(route?.label)}*\n` +
+        `👥 ${regs.length} ተመዝጋቢ  •  ⚖️ ${totalKg.toLocaleString()} ኪሎ\n` +
+        `\`${bar}\` ${pct}%  •  📦 ቀሪ ${remainingKg.toLocaleString()} ኪሎ`
     );
 }
 
-// ── NEW: broadcast route status to all active registrants ─
-async function broadcastRouteStatus(routeId, bot) {
+// ── Broadcast route status to all active registrants ────
+// excludeUserId: skip this user (e.g. the sender who already saw payment instructions)
+async function broadcastRouteStatus(routeId, bot, excludeUserId = null) {
     const card = await routeStatusCard(routeId);
     const regs = await CargoReg.find({
         routeId,
         status: { $in: ['pending_payment', 'payment_review', 'approved'] }
     }).lean();
 
-    const uniqueUsers = [...new Set(regs.map(r => r.userId))];
+    const uniqueUsers = [...new Set(regs.map(r => r.userId))]
+        .filter(id => id !== excludeUserId);
     for (const userId of uniqueUsers) {
         try {
             await bot.telegram.sendMessage(userId, card, { parse_mode: 'Markdown' });
@@ -621,18 +614,17 @@ bot.action(/^paymethod_(.+)$/, async ctx => {
         ? method.info.split(':').slice(1).join(':').trim()
         : method.info;
 
+    // Single clear payment instruction — no duplicate route status here
     await ctx.reply(
-        `💳 *${reg.totalPrice} ብር* በ\`${payNum}\` ${method.emoji} *${esc(method.label)}* ይክፈሉ።\n\n` +
-        `ከከፈሉ በኋላ 📸 *የክፍያ screenshot* ይላኩ።`,
+        `${method.emoji} *${esc(method.label)}*\n` +
+        `📲 \`${payNum}\`\n` +
+        `💰 *${reg.totalPrice} ብር* ይላኩ\n\n` +
+        `ከከፈሉ በኋላ 📸 *screenshot* ይላኩ`,
         { parse_mode: 'Markdown', ...mainKb() }
     );
 
-    // Show current route status after registration
-    const statusCard = await routeStatusCard(routeId);
-    await ctx.reply(statusCard, { parse_mode: 'Markdown' });
-
-    // Broadcast to existing registrants that someone new joined
-    await broadcastRouteStatus(routeId, bot);
+    // Broadcast to existing registrants (they get the status update, sender does NOT get duplicate)
+    await broadcastRouteStatus(routeId, bot, uid);
 });
 
 // ── LOCATION HANDLER (unified — order matters!) ───────
@@ -933,8 +925,8 @@ bot.on('photo', async ctx => {
         }).catch(()=>{});
     }
 
-    // Broadcast route status update to all registrants
-    await broadcastRouteStatus(reg.routeId, bot);
+    // Broadcast route status update to all OTHER registrants (sender already got location prompt)
+    await broadcastRouteStatus(reg.routeId, bot, uid);
 });
 
 // ── LAUNCH ────────────────────────────────────────────
