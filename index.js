@@ -228,8 +228,23 @@ bot.use(sessionMW);
 
 bot.start(async ctx => {
   ctx.session = {};
+
+  // ሁሉንም routes እና stops ዝርዝር
+  let routeList = '';
+  for (const route of ROUTES) {
+    routeList += `\n${route.emoji} *${route.label}*\n`;
+    for (const stop of route.stops) {
+      routeList += `　　↳ 📍 ${stop.label}\n`;
+    }
+  }
+
   await ctx.reply(
-    '🚚 *ካርጎ ቡድን ሥርዓት*\n\nጭነትዎን ከሌሎች ጋር እናጓጉዛለን።\n💰 10 ብር / ኪሎ\n\n👇 መስመር ይምረጡ:',
+    '🚚 *ካርጎ ቡድን ሥርዓት*\n\n' +
+    'ጭነትዎን ከሌሎች ጋር እናጓጉዛለን።\n' +
+    '💰 10 ብር / ኪሎ\n\n' +
+    '*📋 የምንሸፍናቸው መስመሮች:*\n' +
+    routeList +
+    '\n👇 መስመር ይምረጡ:',
     { parse_mode: 'Markdown', ...mainKb() }
   );
 });
