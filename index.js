@@ -535,12 +535,19 @@ bot.on('photo', async ctx => {
 });
 
 // ── LAUNCH ────────────────────────────────────────────
+const http = require('http');
+const PORT = Number(process.env.PORT) || 3000;
+
 mongoose.connect(MONGO_URI)
     .then(() => {
         console.log('✅ MongoDB ተገናኘ');
+        // Keep-alive HTTP server for Render Web Service
+        http.createServer((_, res) => res.end('OK')).listen(PORT, () => {
+            console.log(`✅ HTTP server port ${PORT}`);
+        });
         return bot.launch({ dropPendingUpdates: true });
     })
-    .then(() => console.log('✅ Bot ጀምሯል — Background Worker'))
+    .then(() => console.log('✅ Bot ጀምሯል'))
     .catch(err => { console.error('❌', err.message); process.exit(1); });
 
 process.once('SIGINT',  () => { try { bot.stop('SIGINT');  } catch(_){} process.exit(0); });
