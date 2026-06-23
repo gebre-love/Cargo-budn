@@ -1,24 +1,18 @@
 'use strict';
 
-// ╔══════════════════════════════════════════════════════╗
-// ║      ካርጎ ቡድን ሥርዓት  v3.0                          ║
-// ║      ካርጎ ቡድን ምዝገባ + AI ክፍያ ማረጋገጫ                 ║
-// ╚══════════════════════════════════════════════════════╝
-
 const { Telegraf, Markup } = require('telegraf');
 const mongoose = require('mongoose');
 const Anthropic = require('@anthropic-ai/sdk');
 
-// ── CONFIG ────────────────────────────────────────────
 const BOT_TOKEN       = (process.env.BOT_TOKEN || '').trim();
 const MONGO_URI       =  process.env.MONGO_URI || '';
 const SUPPORT_PHONE   =  process.env.SUPPORT_PHONE || '0960336138';
 const ADMIN_IDS       = (process.env.ADMIN_IDS || '')
                           .split(',').map(s => Number(s.trim())).filter(Boolean);
-const PRICE_PER_KG    =  10;  // 10 ብር per ኪሎ
+const PRICE_PER_KG    =  10;
 const ANTHROPIC_KEY   =  process.env.ANTHROPIC_API_KEY || '';
-// AI ራሱ "ሙሉ በሙሉ ትክክል ነው" ካለ ብቻ auto-approve ያደርጋል። ሌላው ሁሉ ለAdmin ይላካል።
 const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
+const TRUCK_CAPACITY  =  10000; // ኪሎ
 
 if (!BOT_TOKEN || !MONGO_URI) {
     console.error('❌ BOT_TOKEN እና MONGO_URI አልተገኘም!');
@@ -30,7 +24,6 @@ if (!ANTHROPIC_KEY) {
 
 const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
 
-// ── ROUTES ────────────────────────────────────────────
 const ROUTES = [
     { id: 'hawassa',  label: 'አዲስ አበባ → ሀዋሳ',    emoji: '🟢' },
     { id: 'bahirdar', label: 'አዲስ አበባ → ባህር ዳር',  emoji: '🔵' },
@@ -38,8 +31,6 @@ const ROUTES = [
     { id: 'mekelle',  label: 'አዲስ አበባ → መቀሌ',    emoji: '🔴' },
 ];
 
-// ── PAYMENT METHODS ───────────────────────────────────
-// እያንዳንዱ የራሱ account/number አለው — ደንበኛ ከታች ካለው ይመርጣል
 const PAYMENT_METHODS = [
     { id: 'telebirr', label: 'ቴሌብር (Telebirr)', emoji: '📱',
       info: process.env.TELEBIRR_INFO || 'Telebirr: 0960336138' },
@@ -60,14 +51,14 @@ const cargoSchema = new mongoose.Schema({
     totalPrice:  { type: Number, default: 0 },
     locationLat: { type: Number, default: null },
     locationLng: { type: Number, default: null },
-    paymentMethod: { type: String, default: null }, // telebirr | cbe | boa | dashen
+    paymentMethod: { type: String, default: null },
     status: {
         type: String,
         default: 'pending_payment',
         enum: ['pending_payment', 'payment_review', 'approved', 'rejected', 'dispatched']
     },
     paymentFileId:  { type: String, default: null },
-    aiVerdict:      { type: mongoose.Schema.Types.Mixed, default: null }, // AI ትንተና ውጤት ይቀመጥበታል
+    aiVerdict:      { type: mongoose.Schema.Types.Mixed, default: null },
     aiAutoApproved: { type: Boolean, default: false },
     groupId:        { type: String, default: null },
     createdAt:      { type: Date, default: Date.now }
@@ -142,7 +133,7 @@ function regCard(r, forAdmin = false) {
         `▸ *ክብደት*      ፦ ${esc(r.weightKg)} ኪሎ\n` +
         `▸ *ዋጋ*         ፦ ${esc(r.totalPrice)} ብር\n` +
         (r.paymentMethod ? `▸ *ክፍያ መንገድ*  ፦ ${esc(methodById(r.paymentMethod)?.label || r.paymentMethod)}\n` : '') +
-        (r.locationLat ? `▸ *ቦታ*         ፦ [Google Maps](https://maps.google.com/?q=${r.locationLat},${r.locationLng})\n` : '')  +
+        (r.locationLat ? `▸ *ቦታ*         ፦ [Google Maps](https://maps.google.com/?q=${r.locationLat},${r.locationLng})\n` : '') +
         `▸ *ሁኔታ*       ፦ ${statusBadge(r.status)}`;
     if (r.aiAutoApproved) txt += `\n▸ *ማረጋገጫ*    ፦ 🤖 በAI ራስ-ሰር ተፈቅዷል`;
     if (forAdmin) {
@@ -152,6 +143,53 @@ function regCard(r, forAdmin = false) {
     return txt;
 }
 
+// ── NEW: Route status card (truck fill info) ──────────
+async function routeStatusCard(routeId) {
+    const route = routeById(routeId);
+    const regs  = await CargoReg.find({
+        routeId,
+        status: { $in: ['pending_payment', 'payment_review', 'approved'] }
+    }).lean();
+
+    const totalKg      = regs.reduce((s, r) => s + (r.weightKg || 0), 0);
+    const approvedKg   = regs.filter(r => r.status === 'approved')
+                             .reduce((s, r) => s + (r.weightKg || 0), 0);
+    const remainingKg  = Math.max(0, TRUCK_CAPACITY - totalKg);
+    const pct          = Math.min(100, Math.round((totalKg / TRUCK_CAPACITY) * 100));
+
+    // Progress bar (10 blocks)
+    const filled  = Math.round(pct / 10);
+    const empty   = 10 - filled;
+    const bar     = '█'.repeat(filled) + '░'.repeat(empty);
+
+    return (
+        `${route?.emoji} *${esc(route?.label)} — የጫካ ሁኔታ*\n` +
+        `━━━━━━━━━━━━━━━\n` +
+        `👥 ተመዝጋቢዎች ፦ *${regs.length}* ሰዎች\n` +
+        `⚖️ ጠቅላላ ክብደት  ፦ *${totalKg.toLocaleString()} / ${TRUCK_CAPACITY.toLocaleString()} ኪሎ*\n` +
+        `✅ የፈቀደ ክብደት  ፦ *${approvedKg.toLocaleString()} ኪሎ*\n` +
+        `📦 የቀረ ቦታ      ፦ *${remainingKg.toLocaleString()} ኪሎ*\n` +
+        `\n\`${bar}\` ${pct}%\n` +
+        `\n_መኪናው ሙሉ በሙሉ ሲሞላ (${TRUCK_CAPACITY.toLocaleString()} ኪሎ) ቡድን ይላካል።_`
+    );
+}
+
+// ── NEW: broadcast route status to all active registrants ─
+async function broadcastRouteStatus(routeId, bot) {
+    const card = await routeStatusCard(routeId);
+    const regs = await CargoReg.find({
+        routeId,
+        status: { $in: ['pending_payment', 'payment_review', 'approved'] }
+    }).lean();
+
+    const uniqueUsers = [...new Set(regs.map(r => r.userId))];
+    for (const userId of uniqueUsers) {
+        try {
+            await bot.telegram.sendMessage(userId, card, { parse_mode: 'Markdown' });
+        } catch (_) {}
+    }
+}
+
 function mainKb() {
     const rows = ROUTES.map(r => [`${r.emoji} ${r.label}`]);
     rows.push(['📋 የምዝገባ ሁኔታ']);
@@ -159,9 +197,7 @@ function mainKb() {
     return Markup.keyboard(rows).resize();
 }
 
-// ── AI PAYMENT SCREENSHOT VERIFICATION ────────────────
-// ማስታወሻ: AI ምስልን ይተነትናል እንጂ 100% ትክክለኛ ፍርድ መስጠት አይችልም።
-// ስለዚህ ግልጽ ትክክለኛ ሲሆን ብቻ auto-approve ያደርጋል፤ ጥርጣሬ ካለ ለAdmin ይተወዋል (auto-reject በፍጹም አያደርግም)።
+// ── AI PAYMENT SCREENSHOT VERIFICATION ───────────────
 async function verifyPaymentScreenshot(bot, fileId, reg) {
     if (!anthropic) return null;
 
@@ -191,12 +227,12 @@ Carefully examine the image and assess:
 1. amount_match: does the amount shown match or exceed ${reg.totalPrice} ETB? (true/false)
 2. account_match: does the recipient account/name reasonably match "${expectedInfo}"? (true/false)
 3. method_match: does the screenshot appear to come from the "${expectedLabel}" app/service the customer claimed to use? (true/false)
-4. looks_edited: are there visible signs of digital tampering — mismatched fonts, misaligned or blurry text, inconsistent backgrounds, irregular spacing, pasted-looking elements? (true/false)
-5. looks_genuine_app: does this look like a real banking/mobile-money app screen rather than a generic edited image? (true/false)
-6. confidence: your overall confidence that this is a genuine, matching payment — "high", "medium", or "low"
-7. reason: a short explanation, written in Amharic, of your reasoning
+4. looks_edited: are there visible signs of digital tampering? (true/false)
+5. looks_genuine_app: does this look like a real banking/mobile-money app screen? (true/false)
+6. confidence: "high", "medium", or "low"
+7. reason: a short explanation in Amharic
 
-Respond with ONLY valid JSON in this exact shape, nothing else, no markdown fences:
+Respond with ONLY valid JSON, no markdown fences:
 {"amount_match": true, "account_match": true, "method_match": true, "looks_edited": false, "looks_genuine_app": true, "confidence": "high", "reason": "..."}`;
 
         const msg = await anthropic.messages.create({
@@ -211,12 +247,12 @@ Respond with ONLY valid JSON in this exact shape, nothing else, no markdown fenc
             }]
         });
 
-        const raw = (msg.content.find(b => b.type === 'text') || {}).text || '{}';
+        const raw   = (msg.content.find(b => b.type === 'text') || {}).text || '{}';
         const clean = raw.replace(/```json|```/g, '').trim();
         return JSON.parse(clean);
     } catch (err) {
         console.error('⚠️ AI ክፍያ ማረጋገጫ ስህተት:', err.message);
-        return null; // null = AI ማረጋገጥ አልተቻለም → ለAdmin ይተወዋል
+        return null;
     }
 }
 
@@ -253,7 +289,6 @@ function aiShouldAutoApprove(result) {
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(sessionMW);
 
-// /start
 bot.start(async ctx => {
     ctx.session = {};
     await ctx.reply(
@@ -275,13 +310,16 @@ ROUTES.forEach(route => {
         }).lean();
 
         if (existing) {
+            // Show existing reg + route status
+            const statusCard = await routeStatusCard(route.id);
             const btns = ['dispatched'].includes(existing.status) ? [] :
                 [[Markup.button.callback('🗑️ ምዝገባ ሰርዝ', `cancel_${existing._id}`)]];
-            return ctx.reply(
+            await ctx.reply(
                 regCard(existing) + `\n\n_ቀደም ሲል ተመዝግበዋል_`,
                 { parse_mode: 'Markdown',
                   ...(btns.length ? Markup.inlineKeyboard(btns) : {}) }
             );
+            return ctx.reply(statusCard, { parse_mode: 'Markdown' });
         }
 
         ctx.session.action  = 'REG_1';
@@ -312,6 +350,9 @@ bot.hears('📋 የምዝገባ ሁኔታ', async ctx => {
             parse_mode: 'Markdown',
             ...(btns.length ? Markup.inlineKeyboard(btns) : {})
         });
+        // Show route status below each registration
+        const statusCard = await routeStatusCard(r.routeId);
+        await ctx.reply(statusCard, { parse_mode: 'Markdown' });
     }
 });
 
@@ -346,11 +387,8 @@ bot.action(/^list_(.+)$/, async ctx => {
     }
     const c = {};
     regs.forEach(r => { c[r.status] = (c[r.status]||0)+1; });
-    await ctx.reply(
-        `${route?.emoji} *${esc(route?.label)}*\n` +
-        `ጠቅላላ: *${regs.length}* | ⏳${c.pending_payment||0} | 🔍${c.payment_review||0} | ✅${c.approved||0} | 🚚${c.dispatched||0}`,
-        { parse_mode: 'Markdown' }
-    );
+    const statusCard = await routeStatusCard(routeId);
+    await ctx.reply(statusCard, { parse_mode: 'Markdown' });
     for (const r of regs) {
         const btns = [];
         if (r.status === 'payment_review') {
@@ -421,6 +459,8 @@ bot.action(/^pay_ok_([a-f\d]{24})$/i, async ctx => {
         `ቡድኑ ሲዘጋጅ ይነገርዎታል።\n❓ ለጥያቄ: \`${SUPPORT_PHONE}\``,
         { parse_mode: 'Markdown' }
     ).catch(()=>{});
+    // Broadcast updated route status to all registrants
+    await broadcastRouteStatus(reg.routeId, bot);
 });
 
 // ── ADMIN: reject payment ─────────────────────────────
@@ -449,9 +489,11 @@ bot.action(/^cancel_([a-f\d]{24})$/i, async ctx => {
     if (!reg) return ctx.reply('❗ አልተገኘም።');
     if (reg.userId !== uid && !isAdmin(ctx)) return ctx.reply('⛔');
     if (reg.status === 'dispatched') return ctx.reply('⚠️ ቀድሞ ተላልፏል።');
+    const routeId = reg.routeId;
     await reg.deleteOne();
     ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(()=>{});
     ctx.reply('🗑️ ምዝገባ ተሰርዟል።', mainKb());
+    await broadcastRouteStatus(routeId, bot);
 });
 
 // ── ADMIN: dispatch choose route ──────────────────────
@@ -498,9 +540,15 @@ bot.action('rep_all', async ctx => {
         ]);
         const m = {};
         counts.forEach(c => { m[c._id] = c.n; });
-        const total = Object.values(m).reduce((a,b)=>a+b,0);
+        const total   = Object.values(m).reduce((a,b)=>a+b,0);
+        const totalKg = await CargoReg.aggregate([
+            { $match: { routeId: route.id, status: { $in: ['pending_payment','payment_review','approved'] } } },
+            { $group: { _id: null, kg: { $sum: '$weightKg' } } }
+        ]).then(r => r[0]?.kg || 0);
+        const remaining = Math.max(0, TRUCK_CAPACITY - totalKg);
         txt += `\n${route.emoji} *${esc(route.label)}*\n`;
-        txt += `   ጠቅላላ:${total} | ⏳${m.pending_payment||0} | 🔍${m.payment_review||0} | ✅${m.approved||0} | 🚚${m.dispatched||0}\n`;
+        txt += `   ሰዎች:${total} | ⏳${m.pending_payment||0} | 🔍${m.payment_review||0} | ✅${m.approved||0} | 🚚${m.dispatched||0}\n`;
+        txt += `   ⚖️ ${totalKg}/${TRUCK_CAPACITY} ኪሎ | 📦 ቀሪ: ${remaining} ኪሎ\n`;
     }
     ctx.reply(txt, { parse_mode: 'Markdown' });
 });
@@ -519,7 +567,6 @@ bot.action('collect_choose', async ctx => {
     });
 });
 
-// ── ADMIN: collection list — ask admin location first ─
 bot.action(/^collect_(.+)$/, async ctx => {
     if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(()=>{});
     ctx.answerCbQuery().catch(()=>{});
@@ -539,9 +586,63 @@ bot.action(/^collect_(.+)$/, async ctx => {
     );
 });
 
-// ── ADMIN: receive location → sort by distance ────────
-bot.on('location', async (ctx, next) => {
-    if (ctx.session?.action === 'COLLECT_LOCATION' && isAdmin(ctx)) {
+// ── PAYMENT METHOD SELECTED → create registration ─────
+bot.action(/^paymethod_(.+)$/, async ctx => {
+    ctx.answerCbQuery().catch(()=>{});
+    if (ctx.session?.action !== 'REG_PAYMETHOD') return;
+    const method = methodById(ctx.match[1]);
+    if (!method) return ctx.reply('⚠️ ያልታወቀ ክፍያ መንገድ።');
+
+    const uid     = ctx.from.id;
+    const d       = ctx.session.regData;
+    const routeId = ctx.session.routeId;
+    ctx.session.action  = null;
+    ctx.session.regData = {};
+    ctx.session.routeId = null;
+
+    const reg = await CargoReg.create({
+        userId:        uid,
+        username:      ctx.from.username || '',
+        fullName:      d.fullName,
+        phone:         d.phone,
+        routeId,
+        cargoDesc:     d.cargoDesc,
+        weightKg:      d.weightKg,
+        totalPrice:    d.totalPrice,
+        locationLat:   null,
+        locationLng:   null,
+        paymentMethod: method.id,
+        status:        'pending_payment'
+    });
+
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(()=>{});
+
+    const payNum = method.info.includes(':')
+        ? method.info.split(':').slice(1).join(':').trim()
+        : method.info;
+
+    await ctx.reply(
+        `💳 *${reg.totalPrice} ብር* በ\`${payNum}\` ${method.emoji} *${esc(method.label)}* ይክፈሉ።\n\n` +
+        `ከከፈሉ በኋላ 📸 *የክፍያ screenshot* ይላኩ።`,
+        { parse_mode: 'Markdown', ...mainKb() }
+    );
+
+    // Show current route status after registration
+    const statusCard = await routeStatusCard(routeId);
+    await ctx.reply(statusCard, { parse_mode: 'Markdown' });
+
+    // Broadcast to existing registrants that someone new joined
+    await broadcastRouteStatus(routeId, bot);
+});
+
+// ── LOCATION HANDLER (unified — order matters!) ───────
+// ⚠️ FIX: Previously two separate bot.on('location') handlers existed.
+// Telegraf only runs the LAST registered handler. Now merged into one.
+bot.on('location', async ctx => {
+    const action = ctx.session?.action;
+
+    // 1. Admin collecting members by proximity
+    if (action === 'COLLECT_LOCATION' && isAdmin(ctx)) {
         const { latitude: aLat, longitude: aLng } = ctx.message.location;
         const routeId = ctx.session.collectRouteId;
         const route   = routeById(routeId);
@@ -595,23 +696,14 @@ bot.on('location', async (ctx, next) => {
 
         for (let i = 0; i < sorted.length; i++) {
             const r = sorted[i];
-            const statusIcon = {
-                pending_payment: '⏳',
-                payment_review:  '🔍',
-                approved:        '✅'
-            }[r.status] || '❓';
-
-            const dist = r.distKm < 9999
-                ? `📏 *${r.distKm.toFixed(1)} ኪሜ ርቀት*`
-                : `📍 _ቦታ አልተላከም_`;
-
+            const statusIcon = { pending_payment: '⏳', payment_review: '🔍', approved: '✅' }[r.status] || '❓';
+            const dist = r.distKm < 9999 ? `📏 *${r.distKm.toFixed(1)} ኪሜ ርቀት*` : `📍 _ቦታ አልተላከም_`;
             const card =
                 `*${i + 1}. ${esc(r.fullName)}* ${statusIcon}\n` +
                 `📞 \`${esc(r.phone)}\`\n` +
                 `📦 ${esc(r.cargoDesc)} — *${r.weightKg} ኪሎ*\n` +
                 `💳 *${r.totalPrice} ብር*\n` +
                 dist;
-
             await ctx.reply(card, { parse_mode: 'Markdown' });
             if (r.locationLat && r.locationLng) {
                 await bot.telegram.sendLocation(ctx.chat.id, r.locationLat, r.locationLng);
@@ -620,81 +712,38 @@ bot.on('location', async (ctx, next) => {
         return;
     }
 
-    return next();
-});
+    // 2. User sending their location after payment screenshot
+    if (action === 'REG_LOCATION_FINAL') {
+        const { latitude, longitude } = ctx.message.location;
+        const regId = ctx.session.locationRegId;
+        ctx.session.action        = null;
+        ctx.session.locationRegId = null;
 
-// ── PAYMENT METHOD SELECTED → create registration ─────
-bot.action(/^paymethod_(.+)$/, async ctx => {
-    ctx.answerCbQuery().catch(()=>{});
-    if (ctx.session?.action !== 'REG_PAYMETHOD') return;
-    const method = methodById(ctx.match[1]);
-    if (!method) return ctx.reply('⚠️ ያልታወቀ ክፍያ መንገድ።');
+        const reg = await CargoReg.findByIdAndUpdate(
+            regId, { locationLat: latitude, locationLng: longitude }, { new: true }
+        );
+        if (!reg) return ctx.reply('❗ ምዝገባ አልተገኘም።', mainKb());
 
-    const uid     = ctx.from.id;
-    const d       = ctx.session.regData;
-    const routeId = ctx.session.routeId;
-    ctx.session.action  = null;
-    ctx.session.regData = {};
-    ctx.session.routeId = null;
+        await ctx.reply('📍 *ቦታዎ ተመዝግቧል — እናመስግናለን!*', { parse_mode: 'Markdown', ...mainKb() });
 
-    const reg = await CargoReg.create({
-        userId:        uid,
-        username:      ctx.from.username || '',
-        fullName:      d.fullName,
-        phone:         d.phone,
-        routeId,
-        cargoDesc:     d.cargoDesc,
-        weightKg:      d.weightKg,
-        totalPrice:    d.totalPrice,
-        locationLat:   null,
-        locationLng:   null,
-        paymentMethod: method.id,
-        status:        'pending_payment'
-    });
-
-    await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(()=>{});
-
-    const payNum = method.info.includes(':')
-        ? method.info.split(':').slice(1).join(':').trim()
-        : method.info;
-
-    await ctx.reply(
-        `💳 *${reg.totalPrice} ብር* በ\`${payNum}\` ${method.emoji} *${esc(method.label)}* ይክፈሉ።\n\n` +
-        `ከከፈሉ በኋላ 📸 *የክፍያ screenshot* ይላኩ።`,
-        { parse_mode: 'Markdown', ...mainKb() }
-    );
-    // ማስታወሻ: "ምዝገባ ደርሷል" ካርድ + ለAdmin ማሳወቂያ ክፍያ screenshot ከደረሰ በኋላ ብቻ ነው (ከታች photo handler ይመልከቱ)።
-});
-
-// ── USER LOCATION — final step, AFTER payment is sent ─
-bot.on('location', async ctx => {
-    if (ctx.session?.action !== 'REG_LOCATION_FINAL') return;
-    const { latitude, longitude } = ctx.message.location;
-    const regId = ctx.session.locationRegId;
-    ctx.session.action        = null;
-    ctx.session.locationRegId = null;
-
-    const reg = await CargoReg.findByIdAndUpdate(
-        regId, { locationLat: latitude, locationLng: longitude }, { new: true }
-    );
-    if (!reg) return ctx.reply('❗ ምዝገባ አልተገኘም።', mainKb());
-
-    await ctx.reply('📍 *ቦታዎ ተመዝግቧል — እናመስግናለን!*', { parse_mode: 'Markdown', ...mainKb() });
-
-    for (const adminId of ADMIN_IDS) {
-        bot.telegram.sendMessage(adminId,
-            `📍 *ቦታ ደርሷል* — ${esc(reg.fullName)}`,
-            { parse_mode: 'Markdown' }
-        ).catch(()=>{});
-        bot.telegram.sendLocation(adminId, latitude, longitude).catch(()=>{});
+        for (const adminId of ADMIN_IDS) {
+            bot.telegram.sendMessage(adminId,
+                `📍 *ቦታ ደርሷል* — ${esc(reg.fullName)}`,
+                { parse_mode: 'Markdown' }
+            ).catch(()=>{});
+            bot.telegram.sendLocation(adminId, latitude, longitude).catch(()=>{});
+        }
+        return;
     }
+
+    // No matching action — ignore
 });
 
+// ── TEXT HANDLER ──────────────────────────────────────
 bot.on('text', async (ctx, next) => {
     const action = ctx.session?.action;
     if (!action) return next();
     const text = ctx.message.text.trim();
-    const uid  = ctx.from.id;
 
     if (action === 'REG_1') {
         ctx.session.regData = { fullName: text };
@@ -740,7 +789,7 @@ bot.on('text', async (ctx, next) => {
         return ctx.reply('📍 *ቦታዎን ያጋሩ* — ከታች ያለውን ቁልፍ ይጫኑ።', { parse_mode: 'Markdown' });
     }
 
-    // Dispatch note
+    // Dispatch note (admin)
     if (action === 'DISPATCH_NOTE') {
         if (!isAdmin(ctx)) { ctx.session.action = null; return next(); }
         const note    = text;
@@ -789,6 +838,18 @@ bot.on('text', async (ctx, next) => {
 // ── PHOTO HANDLER (payment screenshot + AI verification) ─
 bot.on('photo', async ctx => {
     const uid = ctx.from.id;
+
+    // ⚠️ FIX: Only accept photo if user is in pending_payment status
+    // AND their session does NOT indicate they should be doing something else
+    // (prevents accepting photos mid-registration flow)
+    const activeAction = ctx.session?.action;
+    if (activeAction && activeAction !== 'REG_LOCATION_FINAL') {
+        return ctx.reply(
+            '⚠️ ምዝገባ እየተካሄደ ነው። እባክዎ ደረጃዎቹን ይጨርሱ።',
+            { parse_mode: 'Markdown' }
+        );
+    }
+
     const reg = await CargoReg.findOne({
         userId: uid, status: 'pending_payment'
     }).sort({ createdAt: -1 });
@@ -812,7 +873,6 @@ bot.on('photo', async ctx => {
         { parse_mode: 'Markdown' }
     );
 
-    // 🤖 AI ምስሉን ይተንታል
     const result = await verifyPaymentScreenshot(bot, fileId, reg);
     reg.aiVerdict = result;
 
@@ -841,7 +901,7 @@ bot.on('photo', async ctx => {
         ).catch(()=>{});
     }
 
-    // ክፍያው ስለተላከ አሁን ቦታ ይጠይቁ (ለሰብሳቢ/ለመኪና ቅርብነት)
+    // Now ask for location
     ctx.session.action        = 'REG_LOCATION_FINAL';
     ctx.session.locationRegId = reg._id.toString();
     await ctx.reply(
@@ -855,7 +915,7 @@ bot.on('photo', async ctx => {
         }
     );
 
-    // Admin ሁልጊዜ AI ትንታኔ + buttons ይደርሰዋል (auto-approved ቢሆንም ለ oversight)
+    // Admin always gets AI verdict + photo + buttons
     const caption = aiVerdictText(result) + '\n\n' +
         (autoApproved ? '✅ *AI በራስ-ሰር ፈቅዷል*\n\n' : '') +
         regCard(reg.toObject(), true);
@@ -872,6 +932,9 @@ bot.on('photo', async ctx => {
             ])
         }).catch(()=>{});
     }
+
+    // Broadcast route status update to all registrants
+    await broadcastRouteStatus(reg.routeId, bot);
 });
 
 // ── LAUNCH ────────────────────────────────────────────
