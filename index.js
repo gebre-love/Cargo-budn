@@ -1,7 +1,7 @@
 'use strict';
 
 // ╔══════════════════════════════════════════════════════╗
-// ║   ካርጎ ቡድን ሥርዓት  v3.1 (ቀላል ስሪት)                   ║
+// ║   ካርጎ ቡድን ሥርዓት  v3.2 (ቦታ UX ማሻሻያ)              ║
 // ║   ካርጎ ቡድን ምዝገባ + AI ክፍያ ማረጋገጫ                   ║
 // ╚══════════════════════════════════════════════════════╝
 
@@ -15,7 +15,7 @@ const MONGO_URI     = process.env.MONGO_URI || '';
 const SUPPORT_PHONE = process.env.SUPPORT_PHONE || '0960336138';
 const ADMIN_IDS     = (process.env.ADMIN_IDS || '')
   .split(',').map(s => Number(s.trim())).filter(Boolean);
-const PRICE_PER_KG  = 10; // ብር በኪሎ
+const PRICE_PER_KG  = 10;
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
 const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
 
@@ -93,9 +93,7 @@ async function getSession(key) {
   try {
     const doc = await BotSession.findOne({ key }).lean();
     return doc ? doc.data : {};
-  } catch {
-    return {};
-  }
+  } catch { return {}; }
 }
 async function saveSession(key, data) {
   try {
@@ -145,6 +143,8 @@ function regCard(r, forAdmin = false) {
   }
   if (r.locationLat) {
     txt += `▸ *ቦታ*       ፦ [Google Maps](https://maps.google.com/?q=${r.locationLat},${r.locationLng})\n`;
+  } else {
+    txt += `▸ *ቦታ*       ፦ _ገና አልተላከም_\n`;
   }
   txt += `▸ *ሁኔታ*      ፦ ${STATUS_LABEL[r.status] || r.status}`;
   if (r.aiAutoApproved) txt += `\n▸ *ማረጋገጫ*   ፦ 🤖 በAI ራስ-ሰር ተፈቅዷል`;
@@ -161,8 +161,12 @@ function mainKb() {
   return Markup.keyboard(rows).resize();
 }
 
+// ── Location keyboard: Share + Skip ────────────────────
 function locationKb() {
-  return Markup.keyboard([[Markup.button.locationRequest('📍 ቦታዬን አጋራ')]]).resize().oneTime();
+  return Markup.keyboard([
+    [Markup.button.locationRequest('📍 ቦታዬን አጋራ')],
+    ['⏭️ ቦታ ሳላጋራ ቀጥል'],
+  ]).resize().oneTime();
 }
 
 function approveRejectKb(id) {
@@ -172,7 +176,6 @@ function approveRejectKb(id) {
   ]]);
 }
 
-// edits a card whether it was sent as a photo (caption) or plain text message
 async function updateRegCardMessage(ctx, text) {
   const fn = ctx.editMessageCaption ? 'editMessageCaption' : 'editMessageText';
   await ctx[fn](text, { parse_mode: 'Markdown' }).catch(() => {});
@@ -182,9 +185,29 @@ async function notifyUser(uid, text) {
   await bot.telegram.sendMessage(uid, text, { parse_mode: 'Markdown' }).catch(() => {});
 }
 
+// ════════════════════ LOCATION PROMPT (ደጋግሞ ጥቅም ላይ) ══
+// Photo ከደረሰ በኋላ ወይም ሌላ ቦታ ላይ location ለመጠየቅ
+async function askForLocation(ctx, regId) {
+  ctx.session.action = 'REG_LOCATION_FINAL';
+  ctx.session.locationRegId = String(regId);
+  ctx.session.locationPromptCount = 0; // ስንት ጊዜ reminder እንደተላከ
+
+  await ctx.reply(
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `📍 *ደረጃ 5 ከ 5 — ቦታዎን ያጋሩ*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `🚚 ጭነትዎን *ለምን ቦታ* እንደምንሰበስብ ማወቅ ያስፈልገናል\\.\n\n` +
+    `*እንዴት?*\n` +
+    `1\\. ከታች 👇 አረንጓዴውን *📍 ቦታዬን አጋራ* ቁልፍ ይጫኑ\n` +
+    `2\\. Telegram "Share" ወይም "Send" ይጫኑ — ፍጹም ቀላል\\!\n\n` +
+    `⚠️ *ጽሁፍ አይጻፉ* — ቁልፉን ብቻ ይጫኑ\\.\n\n` +
+    `ቦታዎ ለ Admin ብቻ ይታያል — ለሌሎች አይታይም\\.\n` +
+    `ቦታ ማጋራት ካልፈለጉ *⏭️ ቦታ ሳላጋራ ቀጥል* ይጫኑ\\.`,
+    { parse_mode: 'MarkdownV2', ...locationKb() }
+  );
+}
+
 // ════════════════════ AI PAYMENT VERIFICATION ══════════
-// AI ራሱ "ሙሉ በሙሉ ትክክል ነው" ካለ ብቻ auto-approve ያደርጋል።
-// ጥርጣሬ ካለ ለAdmin ይተወዋል (auto-reject በፍጹም አያደርግም)።
 async function verifyPaymentScreenshot(fileId, reg) {
   if (!anthropic) return null;
 
@@ -239,11 +262,9 @@ function aiPassedAllChecks(r) {
          r?.looks_genuine_app === true &&
          r?.confidence === 'high';
 }
-
 function aiShouldAutoApprove(result) {
   return AI_AUTO_APPROVE && aiPassedAllChecks(result);
 }
-
 function aiVerdictText(result) {
   if (!result) return '🤖 *AI ምርመራ:* ⚙️ አልተሳካም — Admin ራሱ ያረጋግጥ';
 
@@ -296,7 +317,13 @@ ROUTES.forEach(route => {
     ctx.session.action = 'REG_NAME';
     ctx.session.routeId = route.id;
     ctx.session.regData = {};
-    return ctx.reply(`${route.emoji} *${esc(route.label)}*\n\n\`[1/4]\` 👤 *ሙሉ ስምዎን ያስገቡ:*`, { parse_mode: 'Markdown' });
+    return ctx.reply(
+      `${route.emoji} *${esc(route.label)}*\n\n` +
+      `📋 *ምዝገባ ደረጃዎች:*\n` +
+      `1\\. ስም → 2\\. ስልክ → 3\\. ጭነት → 4\\. ክብደት → 5\\. ክፍያ → 6\\. ቦታ\n\n` +
+      `\`[1/6]\` 👤 *ሙሉ ስምዎን ያስገቡ:*`,
+      { parse_mode: 'MarkdownV2' }
+    );
   });
 });
 
@@ -308,11 +335,23 @@ bot.hears('📋 የምዝገባ ሁኔታ', async ctx => {
 
   for (const r of regs) {
     const canCancel = r.status !== 'dispatched';
-    await ctx.reply(regCard(r), {
-      parse_mode: 'Markdown',
-      ...(canCancel ? Markup.inlineKeyboard([[Markup.button.callback('🗑️ ምዝገባ ሰርዝ', `cancel_${r._id}`)]]) : {}),
-    });
+    const buttons = [];
+    if (canCancel) buttons.push(Markup.button.callback('🗑️ ምዝገባ ሰርዝ', `cancel_${r._id}`));
+    // ቦታ ያልተላኩ ተጠቃሚዎች እዚህ ላይም ዕድሉ ይሰጣቸዋል
+    if (!r.locationLat && r.status !== 'dispatched' && r.status !== 'rejected') {
+      buttons.push(Markup.button.callback('📍 ቦታ ላክ', `send_location_${r._id}`));
+    }
+    const kb = buttons.length ? Markup.inlineKeyboard([buttons]) : {};
+    await ctx.reply(regCard(r), { parse_mode: 'Markdown', ...kb });
   }
+});
+
+// ── "ቦታ ላክ" button — ከStatus ማረጋገጫ ላይ ─────────────────
+bot.action(/^send_location_([a-f\d]{24})$/i, async ctx => {
+  ctx.answerCbQuery().catch(() => {});
+  const reg = await CargoReg.findById(ctx.match[1]);
+  if (!reg || reg.userId !== ctx.from.id) return ctx.reply('❗ አልተገኘም።');
+  await askForLocation(ctx, reg._id);
 });
 
 // ── ADMIN PANEL ───────────────────────────────────────────
@@ -502,19 +541,26 @@ async function handleAdminCollectLocation(ctx) {
   }).lean();
 
   if (!members.length) {
-    return ctx.reply(`📭 ${route?.emoji} *${esc(route?.label)}* — ምንም ዝግጁ ተጠቃሚ የለም።`, { parse_mode: 'Markdown', ...mainKb() });
+    return ctx.reply(
+      `📭 ${route?.emoji} *${esc(route?.label)}* — ምንም ዝግጁ ተጠቃሚ የለም።`,
+      { parse_mode: 'Markdown', ...mainKb() }
+    );
   }
 
   const sorted = members
     .map(r => ({ ...r, distKm: r.locationLat ? distKm(aLat, aLng, r.locationLat, r.locationLng) : 9999 }))
     .sort((a, b) => a.distKm - b.distKm);
 
-  const totalKg = sorted.reduce((s, r) => s + (r.weightKg || 0), 0);
+  const totalKg   = sorted.reduce((s, r) => s + (r.weightKg || 0), 0);
   const totalBirr = sorted.reduce((s, r) => s + (r.totalPrice || 0), 0);
+  const noLocation = sorted.filter(r => r.distKm === 9999).length;
 
   await ctx.reply(
     `🗺️ *${esc(route?.label)} — ሰብሳቢ ዝርዝር*\n━━━━━━━━━━━━━━━\n` +
-    `👥 ሰዎች: *${sorted.length}*\n⚖️ ጠቅላላ ክብደት: *${totalKg} ኪሎ*\n💰 ጠቅላላ ዋጋ: *${totalBirr} ብር*\n📌 ቅርብ ቦታ ቀደም ብሎ ታይቷል`,
+    `👥 ሰዎች: *${sorted.length}*\n⚖️ ጠቅላላ ክብደት: *${totalKg} ኪሎ*\n` +
+    `💰 ጠቅላላ ዋጋ: *${totalBirr} ብር*\n` +
+    `📍 ቦታ ያላጋሩ: *${noLocation}* ሰዎች\n` +
+    `📌 ቅርብ ቦታ ቀደም ብሎ ታይቷል`,
     { parse_mode: 'Markdown', ...mainKb() }
   );
 
@@ -522,8 +568,10 @@ async function handleAdminCollectLocation(ctx) {
     const r = sorted[i];
     const dist = r.distKm < 9999 ? `📏 *${r.distKm.toFixed(1)} ኪሜ ርቀት*` : `📍 _ቦታ አልተላከም_`;
     await ctx.reply(
-      `*${i + 1}. ${esc(r.fullName)}* ${STATUS_ICON[r.status] || '❓'}\n📞 \`${esc(r.phone)}\`\n` +
-      `📦 ${esc(r.cargoDesc)} — *${r.weightKg} ኪሎ*\n💳 *${r.totalPrice} ብር*\n${dist}`,
+      `*${i + 1}. ${esc(r.fullName)}* ${STATUS_ICON[r.status] || '❓'}\n` +
+      `📞 \`${esc(r.phone)}\`\n` +
+      `📦 ${esc(r.cargoDesc)} — *${r.weightKg} ኪሎ*\n` +
+      `💳 *${r.totalPrice} ብር*\n${dist}`,
       { parse_mode: 'Markdown' }
     );
     if (r.locationLat && r.locationLng) {
@@ -538,22 +586,65 @@ async function handleUserFinalLocation(ctx) {
   resetSession(ctx);
   ctx.session.locationRegId = null;
 
-  const reg = await CargoReg.findByIdAndUpdate(regId, { locationLat: latitude, locationLng: longitude }, { new: true });
+  const reg = await CargoReg.findByIdAndUpdate(
+    regId,
+    { locationLat: latitude, locationLng: longitude },
+    { new: true }
+  );
   if (!reg) return ctx.reply('❗ ምዝገባ አልተገኘም።', mainKb());
 
-  await ctx.reply('📍 *ቦታዎ ተመዝግቧል — እናመስግናለን!*', { parse_mode: 'Markdown', ...mainKb() });
+  await ctx.reply(
+    `✅ *ምዝገባዎ ሙሉ በሙሉ ተጠናቋል!*\n\n` +
+    `📍 ቦታዎ ተመዝግቧል — ጭነት ሰብሳቢ ቡድናችን ያገኝዎታል\\.\n\n` +
+    `_ምዝገባ ሁኔታ ለማየት "📋 የምዝገባ ሁኔታ" ይጫኑ\\._`,
+    { parse_mode: 'MarkdownV2', ...mainKb() }
+  );
 
   for (const adminId of ADMIN_IDS) {
-    notifyUser(adminId, `📍 *ቦታ ደርሷል* — ${esc(reg.fullName)}`);
+    notifyUser(adminId,
+      `📍 *ቦታ ደርሷል* — ${esc(reg.fullName)} \\(${esc(reg.phone)}\\)\n` +
+      `🔗 [Google Maps](https://maps.google.com/?q=${latitude},${longitude})`
+    );
     bot.telegram.sendLocation(adminId, latitude, longitude).catch(() => {});
   }
 }
 
-// single location handler covering both admin-collect and user-final flows
+// ── LOCATION HANDLER ──────────────────────────────────────
 bot.on('location', async (ctx, next) => {
   if (ctx.session?.action === 'COLLECT_LOCATION' && isAdmin(ctx)) return handleAdminCollectLocation(ctx);
   if (ctx.session?.action === 'REG_LOCATION_FINAL') return handleUserFinalLocation(ctx);
   return next();
+});
+
+// ── SKIP LOCATION button ──────────────────────────────────
+bot.hears('⏭️ ቦታ ሳላጋራ ቀጥል', async ctx => {
+  if (ctx.session?.action !== 'REG_LOCATION_FINAL') {
+    return ctx.reply('⚠️ አሁን ቦታ ማጋራት አያስፈልግዎትም።', mainKb());
+  }
+
+  const regId = ctx.session.locationRegId;
+  resetSession(ctx);
+  ctx.session.locationRegId = null;
+
+  await ctx.reply(
+    `✅ *ምዝገባዎ ተጠናቋል!*\n\n` +
+    `📍 ቦታ ሳያጋሩ ቀጥለዋል — ምንም ችግር የለም\\.\n` +
+    `ኋላ ቦታዎን ለማጋራት "📋 የምዝገባ ሁኔታ" ብለው *📍 ቦታ ላክ* ቁልፍ ይጫኑ\\.\n\n` +
+    `❓ ለጥያቄ: \`${SUPPORT_PHONE}\``,
+    { parse_mode: 'MarkdownV2', ...mainKb() }
+  );
+
+  // Admin ቦታ እንዳልተላከ ያሳውቀዋል
+  if (regId) {
+    const reg = await CargoReg.findById(regId).lean();
+    if (reg) {
+      for (const adminId of ADMIN_IDS) {
+        notifyUser(adminId,
+          `⚠️ *ቦታ አልተላከም* — ${esc(reg.fullName)} \\(${esc(reg.phone)}\\) ቦታ ሳያጋሩ ቀጥለዋል\\.`
+        );
+      }
+    }
+  }
 });
 
 // ── PAYMENT METHOD SELECTED → create registration ────────
@@ -585,25 +676,77 @@ bot.action(/^paymethod_(.+)$/, async ctx => {
 
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
 
-  const payNum = method.info.includes(':') ? method.info.split(':').slice(1).join(':').trim() : method.info;
+  const payNum = method.info.includes(':')
+    ? method.info.split(':').slice(1).join(':').trim()
+    : method.info;
+
   await ctx.reply(
-    `💳 *${reg.totalPrice} ብር* በ\`${payNum}\` ${method.emoji} *${esc(method.label)}* ይክፈሉ።\n\n` +
-    `ከከፈሉ በኋላ 📸 *የክፍያ screenshot* ይላኩ።`,
-    { parse_mode: 'Markdown', ...mainKb() }
+    `✅ *ምዝገባ ደረጃ 5/6 ተጠናቋል\\!*\n\n` +
+    `💳 አሁን ክፍያ ይፈጽሙ:\n\n` +
+    `*${method.emoji} ${esc(method.label)}*\n` +
+    `📲 ቁጥር: \`${esc(payNum)}\`\n` +
+    `💰 መጠን: *${reg.totalPrice} ብር*\n\n` +
+    `ከፍለው ከጨረሱ በኋላ 📸 *ቅጽበታዊ ገጽ ​እይታ \\(screenshot\\)* ይላኩ\\.\n\n` +
+    `_ክፍያ screenshot ይላኩ — ቁልፍ አይደለም — ምስሉን ቀጥታ ይላኩ_`,
+    { parse_mode: 'MarkdownV2', ...mainKb() }
   );
 });
 
 // ── TEXT INPUT (registration steps + dispatch note) ───────
 const REG_STEPS = {
-  REG_NAME: { next: 'REG_PHONE', save: (d, t) => { d.fullName = t; }, prompt: '`[2/4]` 📞 *ስልክ ቁጥርዎን ያስገቡ:*' },
-  REG_PHONE: { next: 'REG_CARGO', save: (d, t) => { d.phone = t; }, prompt: '`[3/4]` 📦 *ጭነት ዓይነት ያስገቡ:*\n_ለምሳሌ: ሲሚንቶ, ምግብ ዕቃ_' },
-  REG_CARGO: { next: 'REG_WEIGHT', save: (d, t) => { d.cargoDesc = t; }, prompt: '`[4/4]` ⚖️ *ክብደት በኪሎ ያስገቡ:*\n_ለምሳሌ: 20_\n\n💡 ዋጋ = ኪሎ × 10 ብር' },
+  REG_NAME: {
+    next: 'REG_PHONE',
+    save: (d, t) => { d.fullName = t; },
+    prompt: '`[2/6]` 📞 *ስልክ ቁጥርዎን ያስገቡ:*',
+  },
+  REG_PHONE: {
+    next: 'REG_CARGO',
+    save: (d, t) => { d.phone = t; },
+    prompt: '`[3/6]` 📦 *ጭነት ዓይነት ያስገቡ:*\n_ለምሳሌ: ሲሚንቶ, ምግብ ዕቃ_',
+  },
+  REG_CARGO: {
+    next: 'REG_WEIGHT',
+    save: (d, t) => { d.cargoDesc = t; },
+    prompt: '`[4/6]` ⚖️ *ክብደት በኪሎ ያስገቡ:*\n_ለምሳሌ: 20_\n\n💡 ዋጋ = ኪሎ × 10 ብር',
+  },
 };
 
 bot.on('text', async (ctx, next) => {
   const action = ctx.session?.action;
   if (!action) return next();
   const text = ctx.message.text.trim();
+
+  // ── ቦታ step ላይ ጽሁፍ ቢጽፉ — ደጋግሞ ያብራራ ──────────────
+  if (action === 'REG_LOCATION_FINAL') {
+    const count = (ctx.session.locationPromptCount || 0) + 1;
+    ctx.session.locationPromptCount = count;
+
+    if (count === 1) {
+      return ctx.reply(
+        `📍 *ጽሁፍ ሳይሆን ቦታዎን ያጋሩ\\!*\n\n` +
+        `ከታች ያለውን 👇 *አረንጓዴ ቁልፍ* ብቻ ይጫኑ:\n` +
+        `📍 *"ቦታዬን አጋራ"* → ከዛ Telegram *"Send"* ይጫኑ\\.\n\n` +
+        `_ጽሁፍ ቢጽፉ ቦታዎ አይመዘገብም\\._`,
+        { parse_mode: 'MarkdownV2', ...locationKb() }
+      );
+    } else if (count === 2) {
+      return ctx.reply(
+        `📱 *የ Telegram Location ማጋሪያ እርዳታ:*\n\n` +
+        `1\\. ከስልክዎ 👇 *"📍 ቦታዬን አጋራ"* የሚለውን አረንጓዴ ቁልፍ ይጫኑ\n` +
+        `2\\. Telegram *"Share My Location"* ይጫኑ\n` +
+        `3\\. ✅ ቦታዎ ይደርሳል\\!\n\n` +
+        `ወይም ቦታ ማጋራት ካልፈለጉ 👇 *"⏭️ ቦታ ሳላጋራ ቀጥል"* ይጫኑ\\.`,
+        { parse_mode: 'MarkdownV2', ...locationKb() }
+      );
+    } else {
+      // 3ኛ ጊዜ ና በኋላ — ለ Support ይላካቸዋል
+      return ctx.reply(
+        `❓ ችግር አለ? ለድጋፍ ይደውሉ: \`${SUPPORT_PHONE}\`\n\n` +
+        `ወይም *⏭️ ቦታ ሳላጋራ ቀጥል* ቁልፍ ይጫኑ\\.`,
+        { parse_mode: 'MarkdownV2', ...locationKb() }
+      );
+    }
+  }
 
   if (REG_STEPS[action]) {
     const step = REG_STEPS[action];
@@ -620,20 +763,21 @@ bot.on('text', async (ctx, next) => {
     ctx.session.regData.totalPrice = kg * PRICE_PER_KG;
     ctx.session.action = 'REG_PAYMETHOD';
     return ctx.reply(
-      `✅ ክብደት: *${kg} ኪሎ* — ዋጋ: *${kg * PRICE_PER_KG} ብር*\n\n\`[ክፍያ]\` 💳 *በምን ይከፍላሉ?*`,
+      `✅ ክብደት: *${kg} ኪሎ* — ዋጋ: *${kg * PRICE_PER_KG} ብር*\n\n\`[5/6]\` 💳 *በምን ይከፍላሉ?*`,
       {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(PAYMENT_METHODS.map(m => [Markup.button.callback(`${m.emoji} ${m.label}`, `paymethod_${m.id}`)])),
+        ...Markup.inlineKeyboard(
+          PAYMENT_METHODS.map(m => [Markup.button.callback(`${m.emoji} ${m.label}`, `paymethod_${m.id}`)])
+        ),
       }
     );
   }
 
   if (action === 'REG_PAYMETHOD') {
-    return ctx.reply('💳 *ከላይ ካለው ዝርዝር ክፍያ መንገድ ይምረጡ* (ቁልፍ ይጫኑ)።', { parse_mode: 'Markdown' });
-  }
-
-  if (action === 'REG_LOCATION_FINAL') {
-    return ctx.reply('📍 ጽሁፍ መጻፍ አያስፈልግም — ከታች ያለውን *📍 ቦታዬን አጋራ* አረንጓዴ ቁልፍ ብቻ ይጫኑ።', { parse_mode: 'Markdown' });
+    return ctx.reply(
+      '💳 *ከላይ ካለው ዝርዝር ክፍያ መንገድ ይምረጡ* — ጽሁፍ ሳይሆን ቁልፍ ይጫኑ።',
+      { parse_mode: 'Markdown' }
+    );
   }
 
   if (action === 'DISPATCH_NOTE') {
@@ -663,7 +807,8 @@ bot.on('text', async (ctx, next) => {
     }
 
     return ctx.reply(
-      `✅ *ቡድን ተላልፏል!*\n${route?.emoji} ${esc(route?.label)}\n👥 አባላት: *${approved.length}* | 📨 ተላከ: *${sent}/${approved.length}*`,
+      `✅ *ቡድን ተላልፏል!*\n${route?.emoji} ${esc(route?.label)}\n` +
+      `👥 አባላት: *${approved.length}* | 📨 ተላከ: *${sent}/${approved.length}*`,
       { parse_mode: 'Markdown', ...mainKb() }
     );
   }
@@ -677,7 +822,11 @@ bot.on('photo', async ctx => {
   const reg = await CargoReg.findOne({ userId: uid, status: 'pending_payment' }).sort({ createdAt: -1 });
 
   if (!reg) {
-    return ctx.reply('⚠️ ክፍያ screenshot ለሚቀበለው ምዝገባ አልተገኘም።\nአስቀድመው ምዝገባ ያድርጉ።', mainKb());
+    return ctx.reply(
+      '⚠️ *Screenshot ለሚቀበለው ምዝገባ አልተገኘም\\.*\n\n' +
+      'አስቀድመው ምዝገባ ያድርጉ — ከዚህ ቀደም ምዝገባ ካደረጉ "📋 የምዝገባ ሁኔታ" ይጫኑ\\.',
+      { parse_mode: 'MarkdownV2', ...mainKb() }
+    );
   }
 
   const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
@@ -685,7 +834,11 @@ bot.on('photo', async ctx => {
   reg.status = 'payment_review';
   await reg.save();
 
-  await ctx.reply('📸 *ክፍያ ምስል ደርሷል!*\n\n🤖 በራስ-ሰር በማረጋገጥ ላይ... ትንሽ ይጠብቁ።', { parse_mode: 'Markdown' });
+  await ctx.reply(
+    `📸 *ክፍያ ምስል ደርሷል — እናመሰግናለን\\!*\n\n` +
+    `🤖 በAI እያረጋገጥን ነው\\.\\.\\. ጥቂት ሰከንዶች ይጠብቁ\\.`,
+    { parse_mode: 'MarkdownV2' }
+  );
 
   const result = await verifyPaymentScreenshot(fileId, reg);
   reg.aiVerdict = result;
@@ -703,23 +856,20 @@ bot.on('photo', async ctx => {
       : `✅ *ምዝገባ ደርሷል!*\n\n${regCard(reg.toObject())}\n\n🔍 Admin እያረጋገጠ ነው — ትንሽ ይጠብቁ።\n❓ ለጥያቄ: \`${SUPPORT_PHONE}\``
   );
 
-  // ክፍያ ስለተላከ አሁን ቦታ ይጠይቁ (ለሰብሳቢ/ለመኪና ቅርብነት)
-  ctx.session.action = 'REG_LOCATION_FINAL';
-  ctx.session.locationRegId = reg._id.toString();
-  await ctx.reply(
-    `📍 *መጨረሻ ደረጃ — ቦታዎን ያጋሩ*\n\n` +
-    `ጭነትዎ የሚሰበሰብበትን ቦታ ለማወቅ ያስፈልገናል።\n\n` +
-    `👇 ከታች ያለውን አረንጓዴ *📍 ቦታዬን አጋራ* ቁልፍ ይጫኑ — ብቻ! ምንም ተጨማሪ ነገር መፍለግ አያስፈልግዎትም።`,
-    { parse_mode: 'Markdown', ...locationKb() }
-  );
+  // ── ቦታ ጥያቄ ──────────────────────────────────────────
+  await askForLocation(ctx, reg._id);
 
-  // Admin ሁልጊዜ AI ትንታኔ + buttons ይደርሰዋል (oversight ለ auto-approved ምዝገባም ጭምር)
-  const caption = aiVerdictText(result) + '\n\n' +
+  // ── Admin notification ─────────────────────────────────
+  const caption =
+    aiVerdictText(result) + '\n\n' +
     (autoApproved ? '✅ *AI በራስ-ሰር ፈቅዷል*\n\n' : '') +
     regCard(reg.toObject(), true);
 
   const kb = Markup.inlineKeyboard([[
-    Markup.button.callback(autoApproved ? '↩️ ይቅር (Reject)' : '✅ ፈቀድ', autoApproved ? `pay_no_${reg._id}` : `pay_ok_${reg._id}`),
+    Markup.button.callback(
+      autoApproved ? '↩️ ይቅር (Reject)' : '✅ ፈቀድ',
+      autoApproved ? `pay_no_${reg._id}` : `pay_ok_${reg._id}`
+    ),
     Markup.button.callback('❌ ከልክል', `pay_no_${reg._id}`),
   ]]);
 
@@ -729,9 +879,9 @@ bot.on('photo', async ctx => {
 });
 
 // ════════════════════ LAUNCH ═════════════════════════════
-const http = require('http');
+const http  = require('http');
 const https = require('https');
-const PORT = Number(process.env.PORT) || 3000;
+const PORT  = Number(process.env.PORT) || 3000;
 
 mongoose.connect(MONGO_URI)
   .then(() => {
@@ -747,9 +897,10 @@ mongoose.connect(MONGO_URI)
       setInterval(() => {
         try {
           const url = new URL(RENDER_URL);
-          https.request({ hostname: url.hostname, path: '/', method: 'GET' },
-            r => console.log('🔄 Keep-alive ' + r.statusCode))
-            .on('error', () => {}).end();
+          https.request(
+            { hostname: url.hostname, path: '/', method: 'GET' },
+            r => console.log('🔄 Keep-alive ' + r.statusCode)
+          ).on('error', () => {}).end();
         } catch (_) {}
       }, 10 * 60 * 1000);
       console.log('✅ Keep-alive ተቀናብሯል → ' + RENDER_URL);
