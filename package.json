@@ -1,7 +1,7 @@
 {
   "name": "cargo-budn-srat",
-  "version": "2.0.0",
-  "description": "ካርጎ ቡድን ሥርዓት — ምዝገባ + ክፍያ Tracking",
+  "version": "3.0.0",
+  "description": "ካርጎ ቡድን ሥርዓት — ምዝገባ + AI ክፍያ ማረጋገጫ",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -10,6 +10,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "mongoose": "^8.4.0",
     "telegraf": "^4.16.3"
   }
