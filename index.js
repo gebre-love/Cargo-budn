@@ -663,13 +663,7 @@ bot.action(/^paymethod_(.+)$/, async ctx => {
         `ከፍለው ከጨረሱ 📸 *የክፍያ screenshot* ይላኩ።`,
         { parse_mode: 'Markdown', ...mainKb() }
     );
-
-    for (const adminId of ADMIN_IDS) {
-        bot.telegram.sendMessage(adminId,
-            `🔔 *አዲስ ምዝገባ!*\n\n${regCard(reg.toObject(), true)}`,
-            { parse_mode: 'Markdown' }
-        ).catch(()=>{});
-    }
+    // ማስታወሻ: ለAdmin የሚደርሰው ማሳወቂያ ክፍያ screenshot ከደረሰ በኋላ ብቻ ነው (ከታች photo handler ይመልከቱ)።
 });
 
 // ── USER LOCATION — final step, AFTER payment is sent ─
