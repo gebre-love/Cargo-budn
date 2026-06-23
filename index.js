@@ -285,10 +285,9 @@ bot.use(sessionMW);
 bot.start(async ctx => {
     ctx.session = {};
     await ctx.reply(
-        `🚚 *እንኳን ደህና መጡ — ካርጎ ቡድን ሥርዓት*\n\n` +
-        `ጭነትዎን ከሌሎች ጋር አጣምረን እናጓጉዛለን።\n` +
-        `💳 ዋጋ: *10 ብር/ኪሎ* (ለምሳሌ 20ኪሎ = 200ብር)\n\n` +
-        `👇 መስመር ይምረጡ:`,
+        `🚚 *ካርጎ ቡድን*\n` +
+        `ጭነትዎን ከሌሎች ጋር አጣምረን እናጓጉዛለን — *10 ብር/ኪሎ*\n\n` +
+        `👇 *መስመር ይምረጡ:*`,
         { parse_mode: 'Markdown', ...mainKb() }
     );
 });
@@ -320,7 +319,8 @@ ROUTES.forEach(route => {
         ctx.session.regData = {};
         return ctx.reply(
             `${route.emoji} *${esc(route.label)}*\n\n` +
-            `\`[1/4]\` 👤 *ሙሉ ስምዎን ያስገቡ:*`,
+            `*[1/3]* 👤 *ስምዎን እና ስልክ ቁጥርዎን ያስገቡ:*\n` +
+            `_ምሳሌ: አበበ በቀለ / 0911223344_`,
             { parse_mode: 'Markdown' }
         );
     });
@@ -737,33 +737,68 @@ bot.on('text', async (ctx, next) => {
     if (!action) return next();
     const text = ctx.message.text.trim();
 
+    // ── STEP 1: ስም + ስልክ አንድ ላይ ("አበበ / 0911223344" ወይም "አበበ 0911223344")
     if (action === 'REG_1') {
-        ctx.session.regData = { fullName: text };
+        // Accept separator: /, comma, space-only
+        const parts = text.split(/[\/,]+/).map(s => s.trim()).filter(Boolean);
+        let fullName, phone;
+        if (parts.length >= 2) {
+            fullName = parts[0];
+            phone    = parts.slice(1).join(' ').trim();
+        } else {
+            // Try splitting on first run of digits
+            const m = text.match(/^(.*?)\s*(0\d{9,})\s*$/);
+            if (m) { fullName = m[1].trim(); phone = m[2].trim(); }
+        }
+        if (!fullName || !phone || !/^0\d{8,}$/.test(phone.replace(/\s/g,''))) {
+            return ctx.reply(
+                '⚠️ እባክዎ ስም እና ስልክ ቁጥር አንድ ላይ ያስገቡ:\n' +
+                '_ምሳሌ: አበበ በቀለ / 0911223344_',
+                { parse_mode: 'Markdown' }
+            );
+        }
+        ctx.session.regData = { fullName, phone: phone.replace(/\s/g,'') };
         ctx.session.action  = 'REG_2';
-        return ctx.reply('`[2/4]` 📞 *ስልክ ቁጥርዎን ያስገቡ:*', { parse_mode: 'Markdown' });
+        return ctx.reply(
+            `✅ *${esc(fullName)}* — \`${esc(phone)}\`\n\n` +
+            `*[2/3]* 📦 *ጭነት ዓይነት እና ክብደት ያስገቡ:*\n` +
+            `_ምሳሌ: ሲሚንቶ / 50_`,
+            { parse_mode: 'Markdown' }
+        );
     }
+
+    // ── STEP 2: ጭነት ዓይነት + ክብደት አንድ ላይ ("ሲሚንቶ / 50" ወይም "ሲሚንቶ 50")
     if (action === 'REG_2') {
-        ctx.session.regData.phone = text;
-        ctx.session.action = 'REG_3';
-        return ctx.reply('`[3/4]` 📦 *ጭነት ዓይነት ያስገቡ:*\n_ለምሳሌ: ሲሚንቶ, ምግብ ዕቃ_', { parse_mode: 'Markdown' });
-    }
-    if (action === 'REG_3') {
-        ctx.session.regData.cargoDesc = text;
-        ctx.session.action = 'REG_4';
-        return ctx.reply('`[4/5]` ⚖️ *ክብደት በኪሎ ያስገቡ:*\n_ለምሳሌ: 20_\n\n💡 ዋጋ = ኪሎ × 10 ብር', { parse_mode: 'Markdown' });
-    }
-    if (action === 'REG_4') {
-        const kg = parseFloat(text.replace(/[^0-9.]/g, ''));
-        if (!kg || kg <= 0) {
-            return ctx.reply('⚠️ ትክክለኛ ቁጥር ያስገቡ — ለምሳሌ: *20*', { parse_mode: 'Markdown' });
+        const parts = text.split(/[\/,]+/).map(s => s.trim()).filter(Boolean);
+        let cargoDesc, kg;
+        if (parts.length >= 2) {
+            // last part should be the number
+            const lastNum = parseFloat(parts[parts.length-1].replace(/[^0-9.]/g,''));
+            if (lastNum > 0) {
+                cargoDesc = parts.slice(0, parts.length-1).join(', ');
+                kg        = lastNum;
+            }
+        }
+        if (!cargoDesc || !kg) {
+            // Try: text ending in number
+            const m = text.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s*(?:ኪሎ|kg)?\s*$/i);
+            if (m) { cargoDesc = m[1].trim(); kg = parseFloat(m[2]); }
+        }
+        if (!cargoDesc || !kg || kg <= 0) {
+            return ctx.reply(
+                '⚠️ ጭነት ዓይነት እና ክብደት (ኪሎ) አንድ ላይ ያስገቡ:\n' +
+                '_ምሳሌ: ሲሚንቶ / 50_',
+                { parse_mode: 'Markdown' }
+            );
         }
         const totalPrice = kg * PRICE_PER_KG;
+        ctx.session.regData.cargoDesc  = cargoDesc;
         ctx.session.regData.weightKg   = kg;
         ctx.session.regData.totalPrice = totalPrice;
         ctx.session.action = 'REG_PAYMETHOD';
         return ctx.reply(
-            `✅ ክብደት: *${kg} ኪሎ* — ዋጋ: *${totalPrice} ብር*\n\n` +
-            `\`[ክፍያ]\` 💳 *በምን ይከፍላሉ?*`,
+            `✅ *${esc(cargoDesc)}* — *${kg} ኪሎ* — *${totalPrice} ብር*\n\n` +
+            `*[3/3]* 💳 *ክፍያ መንገድ ይምረጡ:*`,
             {
                 parse_mode: 'Markdown',
                 ...Markup.inlineKeyboard(
@@ -775,7 +810,7 @@ bot.on('text', async (ctx, next) => {
         );
     }
     if (action === 'REG_PAYMETHOD') {
-        return ctx.reply('💳 *ከላይ ካለው ዝርዝር ክፍያ መንገድ ይምረጡ* (ቁልፍ ይጫኑ)።', { parse_mode: 'Markdown' });
+        return ctx.reply('💳 ከላይ ካለው ዝርዝር *ክፍያ መንገድ ይምረጡ* (ቁልፍ ይጫኑ)።', { parse_mode: 'Markdown' });
     }
     if (action === 'REG_LOCATION_FINAL') {
         return ctx.reply('📍 *ቦታዎን ያጋሩ* — ከታች ያለውን ቁልፍ ይጫኑ።', { parse_mode: 'Markdown' });
