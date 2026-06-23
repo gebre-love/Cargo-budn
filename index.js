@@ -633,7 +633,7 @@ bot.on('text', async (ctx, next) => {
   }
 
   if (action === 'REG_LOCATION_FINAL') {
-    return ctx.reply('📍 *ቦታዎን ያጋሩ* — ከታች ያለውን ቁልፍ ይጫኑ።', { parse_mode: 'Markdown' });
+    return ctx.reply('📍 ጽሁፍ መጻፍ አያስፈልግም — ከታች ያለውን *📍 ቦታዬን አጋራ* አረንጓዴ ቁልፍ ብቻ ይጫኑ።', { parse_mode: 'Markdown' });
   }
 
   if (action === 'DISPATCH_NOTE') {
@@ -707,7 +707,9 @@ bot.on('photo', async ctx => {
   ctx.session.action = 'REG_LOCATION_FINAL';
   ctx.session.locationRegId = reg._id.toString();
   await ctx.reply(
-    `📍 *መጨረሻ ደረጃ — ቦታዎን ያጋሩ:*\n👇 ከታች ያለውን 📎 ቁልፍ ጫኑ → _Location_ ይምረጡ`,
+    `📍 *መጨረሻ ደረጃ — ቦታዎን ያጋሩ*\n\n` +
+    `ጭነትዎ የሚሰበሰብበትን ቦታ ለማወቅ ያስፈልገናል።\n\n` +
+    `👇 ከታች ያለውን አረንጓዴ *📍 ቦታዬን አጋራ* ቁልፍ ይጫኑ — ብቻ! ምንም ተጨማሪ ነገር መፍለግ አያስፈልግዎትም።`,
     { parse_mode: 'Markdown', ...locationKb() }
   );
 
