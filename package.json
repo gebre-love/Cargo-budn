@@ -1,0 +1,16 @@
+{
+  "name": "cargo-budn-srat",
+  "version": "2.0.0",
+  "description": "ካርጎ ቡድን ሥርዓት — ምዝገባ + ክፍያ Tracking",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "mongoose": "^8.4.0",
+    "telegraf": "^4.16.3"
+  }
+}
