@@ -623,28 +623,6 @@ bot.on('location', async (ctx, next) => {
     return next();
 });
 
-// ── USER LOCATION — registration step 5 ──────────────
-bot.on('location', async ctx => {
-    if (ctx.session?.action !== 'REG_5') return;
-    const { latitude, longitude } = ctx.message.location;
-    ctx.session.regData.locationLat = latitude;
-    ctx.session.regData.locationLng = longitude;
-    ctx.session.action = 'REG_PAYMETHOD';
-
-    await ctx.reply(
-        `📍 ቦታ ደርሷል!\n\n` +
-        `\`[ክፍያ]\` 💳 *በምን ይከፍላሉ?*`,
-        {
-            parse_mode: 'Markdown',
-            ...Markup.inlineKeyboard(
-                PAYMENT_METHODS.map(m => [
-                    Markup.button.callback(`${m.emoji} ${m.label}`, `paymethod_${m.id}`)
-                ])
-            )
-        }
-    );
-});
-
 // ── PAYMENT METHOD SELECTED → create registration ─────
 bot.action(/^paymethod_(.+)$/, async ctx => {
     ctx.answerCbQuery().catch(()=>{});
@@ -668,8 +646,8 @@ bot.action(/^paymethod_(.+)$/, async ctx => {
         cargoDesc:     d.cargoDesc,
         weightKg:      d.weightKg,
         totalPrice:    d.totalPrice,
-        locationLat:   d.locationLat,
-        locationLng:   d.locationLng,
+        locationLat:   null,
+        locationLng:   null,
         paymentMethod: method.id,
         status:        'pending_payment'
     });
@@ -691,9 +669,30 @@ bot.action(/^paymethod_(.+)$/, async ctx => {
             `🔔 *አዲስ ምዝገባ!*\n\n${regCard(reg.toObject(), true)}`,
             { parse_mode: 'Markdown' }
         ).catch(()=>{});
-        if (d.locationLat) {
-            bot.telegram.sendLocation(adminId, d.locationLat, d.locationLng).catch(()=>{});
-        }
+    }
+});
+
+// ── USER LOCATION — final step, AFTER payment is sent ─
+bot.on('location', async ctx => {
+    if (ctx.session?.action !== 'REG_LOCATION_FINAL') return;
+    const { latitude, longitude } = ctx.message.location;
+    const regId = ctx.session.locationRegId;
+    ctx.session.action        = null;
+    ctx.session.locationRegId = null;
+
+    const reg = await CargoReg.findByIdAndUpdate(
+        regId, { locationLat: latitude, locationLng: longitude }, { new: true }
+    );
+    if (!reg) return ctx.reply('❗ ምዝገባ አልተገኘም።', mainKb());
+
+    await ctx.reply('📍 *ቦታዎ ተመዝግቧል — እናመስግናለን!*', { parse_mode: 'Markdown', ...mainKb() });
+
+    for (const adminId of ADMIN_IDS) {
+        bot.telegram.sendMessage(adminId,
+            `📍 *ቦታ ደርሷል* — ${esc(reg.fullName)}`,
+            { parse_mode: 'Markdown' }
+        ).catch(()=>{});
+        bot.telegram.sendLocation(adminId, latitude, longitude).catch(()=>{});
     }
 });
 
@@ -726,24 +725,25 @@ bot.on('text', async (ctx, next) => {
         const totalPrice = kg * PRICE_PER_KG;
         ctx.session.regData.weightKg   = kg;
         ctx.session.regData.totalPrice = totalPrice;
-        ctx.session.action = 'REG_5';
+        ctx.session.action = 'REG_PAYMETHOD';
         return ctx.reply(
             `✅ ክብደት: *${kg} ኪሎ* — ዋጋ: *${totalPrice} ብር*\n\n` +
-            `\`[5/5]\` 📍 *ቦታዎን ያጋሩ:*\n` +
-            `👇 ከታች ያለውን 📎 ቁልፍ ጫኑ → _Location_ ይምረጡ`,
+            `\`[ክፍያ]\` 💳 *በምን ይከፍላሉ?*`,
             {
                 parse_mode: 'Markdown',
-                ...Markup.keyboard([
-                    [Markup.button.locationRequest('📍 ቦታዬን አጋራ')]
-                ]).resize().oneTime()
+                ...Markup.inlineKeyboard(
+                    PAYMENT_METHODS.map(m => [
+                        Markup.button.callback(`${m.emoji} ${m.label}`, `paymethod_${m.id}`)
+                    ])
+                )
             }
         );
     }
-    if (action === 'REG_5') {
-        return ctx.reply('📍 *ቦታዎን ያጋሩ* — ከታች ያለውን ቁልፍ ይጫኑ።', { parse_mode: 'Markdown' });
-    }
     if (action === 'REG_PAYMETHOD') {
         return ctx.reply('💳 *ከላይ ካለው ዝርዝር ክፍያ መንገድ ይምረጡ* (ቁልፍ ይጫኑ)።', { parse_mode: 'Markdown' });
+    }
+    if (action === 'REG_LOCATION_FINAL') {
+        return ctx.reply('📍 *ቦታዎን ያጋሩ* — ከታች ያለውን ቁልፍ ይጫኑ።', { parse_mode: 'Markdown' });
     }
 
     // Dispatch note
@@ -844,6 +844,20 @@ bot.on('photo', async ctx => {
             { parse_mode: 'Markdown' }
         ).catch(()=>{});
     }
+
+    // ክፍያው ስለተላከ አሁን ቦታ ይጠይቁ (ለሰብሳቢ/ለመኪና ቅርብነት)
+    ctx.session.action        = 'REG_LOCATION_FINAL';
+    ctx.session.locationRegId = reg._id.toString();
+    await ctx.reply(
+        `📍 *መጨረሻ ደረጃ — ቦታዎን ያጋሩ:*\n` +
+        `👇 ከታች ያለውን 📎 ቁልፍ ጫኑ → _Location_ ይምረጡ`,
+        {
+            parse_mode: 'Markdown',
+            ...Markup.keyboard([
+                [Markup.button.locationRequest('📍 ቦታዬን አጋራ')]
+            ]).resize().oneTime()
+        }
+    );
 
     // Admin ሁልጊዜ AI ትንታኔ + buttons ይደርሰዋል (auto-approved ቢሆንም ለ oversight)
     const caption = aiVerdictText(result) + '\n\n' +
