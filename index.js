@@ -15,7 +15,7 @@ const SUPPORT_PHONE =  process.env.SUPPORT_PHONE || '0960336138';
 const ADMIN_IDS     = (process.env.ADMIN_IDS || '')
                         .split(',').map(s => Number(s.trim())).filter(Boolean);
 const PAYMENT_INFO  =  process.env.PAYMENT_INFO || 'CBE: 1000XXXXXXX';
-const REG_FEE       =  200;
+const PRICE_PER_KG  =  10;  // 10 ብር per ኪሎ
 
 if (!BOT_TOKEN || !MONGO_URI) {
     console.error('❌ BOT_TOKEN እና MONGO_URI አልተገኘም!');
@@ -38,7 +38,10 @@ const cargoSchema = new mongoose.Schema({
     phone:       { type: String, default: '' },
     routeId:     { type: String, required: true },
     cargoDesc:   { type: String, default: '' },
-    weight:      { type: String, default: '' },
+    weightKg:    { type: Number, default: 0 },
+    totalPrice:  { type: Number, default: 0 },
+    locationLat: { type: Number, default: null },
+    locationLng: { type: Number, default: null },
     status: {
         type: String,
         default: 'pending_payment',
@@ -115,7 +118,9 @@ function regCard(r, forAdmin = false) {
         `▸ *ስልክ*       ፦ \`${esc(r.phone)}\`\n` +
         `▸ *መስመር*      ፦ ${esc(route?.label || r.routeId)}\n` +
         `▸ *ጭነት ዓይነት*  ፦ ${esc(r.cargoDesc)}\n` +
-        `▸ *ክብደት*      ፦ ${esc(r.weight)}\n` +
+        `▸ *ክብደት*      ፦ ${esc(r.weightKg)} ኪሎ\n` +
+        `▸ *ዋጋ*         ፦ ${esc(r.totalPrice)} ብር\n` +
+        (r.locationLat ? `▸ *ቦታ*         ፦ [Google Maps](https://maps.google.com/?q=${r.locationLat},${r.locationLng})\n` : '')  +
         `▸ *ሁኔታ*       ፦ ${statusBadge(r.status)}`;
     if (forAdmin) {
         txt += `\n▸ *Telegram* ፦ \`${r.userId}\`` +
@@ -141,7 +146,7 @@ bot.start(async ctx => {
     await ctx.reply(
         `🚚 *እንኳን ደህና መጡ — ካርጎ ቡድን ሥርዓት*\n\n` +
         `ጭነትዎን ከሌሎች ጋር አጣምረን እናጓጉዛለን።\n` +
-        `💳 ምዝገባ ክፍያ: *${REG_FEE} ብር*\n\n` +
+        `💳 ዋጋ: *10 ብር/ኪሎ* (ለምሳሌ 20ኪሎ = 200ብር)\n\n` +
         `👇 መስመር ይምረጡ:`,
         { parse_mode: 'Markdown', ...mainKb() }
     );
@@ -405,31 +410,59 @@ bot.on('text', async (ctx, next) => {
     if (action === 'REG_3') {
         ctx.session.regData.cargoDesc = text;
         ctx.session.action = 'REG_4';
-        return ctx.reply('`[4/4]` ⚖️ *ክብደት ያስገቡ:*\n_ለምሳሌ: 500 ኪ.ግ_', { parse_mode: 'Markdown' });
+        return ctx.reply('`[4/5]` ⚖️ *ክብደት በኪሎ ያስገቡ:*\n_ለምሳሌ: 20_\n\n💡 ዋጋ = ኪሎ × 10 ብር', { parse_mode: 'Markdown' });
     }
     if (action === 'REG_4') {
-        ctx.session.regData.weight = text;
+        const kg = parseFloat(text.replace(/[^0-9.]/g, ''));
+        if (!kg || kg <= 0) {
+            return ctx.reply('⚠️ ትክክለኛ ቁጥር ያስገቡ — ለምሳሌ: *20*', { parse_mode: 'Markdown' });
+        }
+        const totalPrice = kg * PRICE_PER_KG;
+        ctx.session.regData.weightKg   = kg;
+        ctx.session.regData.totalPrice = totalPrice;
+        ctx.session.action = 'REG_5';
+        return ctx.reply(
+            `✅ ክብደት: *${kg} ኪሎ* — ዋጋ: *${totalPrice} ብር*\n\n` +
+            `\`[5/5]\` 📍 *ቦታዎን ያጋሩ:*\n` +
+            `👇 ከታች ያለውን 📎 ቁልፍ ጫኑ → _Location_ ይምረጡ`,
+            {
+                parse_mode: 'Markdown',
+                ...require('telegraf').Markup.keyboard([
+                    [require('telegraf').Markup.button.locationRequest('📍 ቦታዬን አጋራ')]
+                ]).resize().oneTime()
+            }
+        );
+    }
+    if (action === 'REG_5') {
+        // Text received instead of location
+        return ctx.reply('📍 *ቦታዎን ያጋሩ* — ከታች ያለውን ቁልፍ ይጫኑ።', { parse_mode: 'Markdown' });
+    }
+    // dummy to keep structure — real REG_5 handled in location handler
+    if (action === 'REG_SAVE') {
         const d = ctx.session.regData;
         const routeId = ctx.session.routeId;
         ctx.session.action  = null;
         ctx.session.regData = {};
 
         const reg = await CargoReg.create({
-            userId:    uid,
-            username:  ctx.from.username || '',
-            fullName:  d.fullName,
-            phone:     d.phone,
+            userId:      uid,
+            username:    ctx.from.username || '',
+            fullName:    d.fullName,
+            phone:       d.phone,
             routeId,
-            cargoDesc: d.cargoDesc,
-            weight:    d.weight,
-            status:    'pending_payment'
+            cargoDesc:   d.cargoDesc,
+            weightKg:    d.weightKg,
+            totalPrice:  d.totalPrice,
+            locationLat: d.locationLat || null,
+            locationLng: d.locationLng || null,
+            status:      'pending_payment'
         });
 
         await ctx.reply(
             `✅ *ምዝገባ ደርሷል!*\n\n` +
             regCard(reg.toObject()) + `\n\n` +
             `━━━━━━━━━━━━━━━\n` +
-            `💳 አሁን *${REG_FEE} ብር* ወደ ታች ወደ ተጻፈው ቁጥር ይላኩ:\n` +
+            `💳 አሁን *${reg.totalPrice} ብር* ወደ ታች ወደ ተጻፈው ቁጥር ይላኩ:\n` +
             `\`${PAYMENT_INFO}\`\n\n` +
             `ከፍለው ከጨረሱ 📸 *የክፍያ screenshot* ይላኩ።`,
             { parse_mode: 'Markdown', ...mainKb() }
@@ -489,6 +522,56 @@ bot.on('text', async (ctx, next) => {
     }
 
     return next();
+});
+
+
+// ── LOCATION HANDLER (registration step 5) ───────────
+bot.on('location', async ctx => {
+    const uid = ctx.from.id;
+    if (ctx.session?.action !== 'REG_5') return;
+
+    const { latitude, longitude } = ctx.message.location;
+    ctx.session.regData.locationLat = latitude;
+    ctx.session.regData.locationLng = longitude;
+
+    const d       = ctx.session.regData;
+    const routeId = ctx.session.routeId;
+    ctx.session.action  = null;
+
+    const reg = await CargoReg.create({
+        userId:      uid,
+        username:    ctx.from.username || '',
+        fullName:    d.fullName,
+        phone:       d.phone,
+        routeId,
+        cargoDesc:   d.cargoDesc,
+        weightKg:    d.weightKg,
+        totalPrice:  d.totalPrice,
+        locationLat: latitude,
+        locationLng: longitude,
+        status:      'pending_payment'
+    });
+    ctx.session.regData = {};
+
+    const route = routeById(routeId);
+    await ctx.reply(
+        `✅ *ምዝገባ ደርሷል!*\n\n` +
+        regCard(reg.toObject()) + `\n\n` +
+        `━━━━━━━━━━━━━━━\n` +
+        `💳 አሁን *${reg.totalPrice} ብር* ወደ ታች ወደ ተጻፈው ቁጥር ይላኩ:\n` +
+        `\`${PAYMENT_INFO}\`\n\n` +
+        `ከፍለው ከጨረሱ 📸 *የክፍያ screenshot* ይላኩ።`,
+        { parse_mode: 'Markdown', ...mainKb() }
+    );
+
+    // Notify admins with location
+    for (const adminId of ADMIN_IDS) {
+        bot.telegram.sendMessage(adminId,
+            `🔔 *አዲስ ምዝገባ!*\n\n${regCard(reg.toObject(), true)}`,
+            { parse_mode: 'Markdown' }
+        ).catch(()=>{});
+        bot.telegram.sendLocation(adminId, latitude, longitude).catch(()=>{});
+    }
 });
 
 // ── PHOTO HANDLER (payment screenshot) ───────────────
