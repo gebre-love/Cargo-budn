@@ -465,7 +465,7 @@ bot.hears('⏭️ አድራሻ ሳላጋራ ጨርስ', async ctx => {
   const regId = ctx.session.locRegId;
   ctx.session = {};
   await ctx.reply(
-    '✅ *ምዝገባ ተጠናቀቀ!*\n\n📌 አድራሻ ኋላ ለመጨምር:\n"📋 የምዝገባ ሁኔታ" → "📍 አድራሻ ላክ"\n\n❓ ለጥያቄ: ${SUPPORT_PHONE}',
+    `✅ *ምዝገባ ተጠናቀቀ!*\n\n📌 አድራሻ ኋላ ለመጨምር:\n"📋 የምዝገባ ሁኔታ" → "📍 አድራሻ ላክ"\n\n❓ ለጥያቄ: ${SUPPORT_PHONE}`,
     { parse_mode: 'Markdown', ...mainKb() }
   );
   if (regId) {
@@ -649,6 +649,7 @@ bot.action(/^col_([a-z_]+)$/, async ctx => {
   await ctx.reply('📍 *ያሉበትን ቦታ ያጋሩ*\n\nሠራተኞቹ ከቅርብ ወደ ሩቅ ይደረደራሉ 👇', { parse_mode: 'Markdown', ...locKb() });
 });
 
+// ══ ፕሪንት ══════════════════════════════════════════════════
 bot.action('print_pick', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
@@ -662,22 +663,86 @@ bot.action(/^prnt_([a-z_]+)$/, async ctx => {
   const ro = byRoute(ctx.match[1]);
   if (!ro) { await ctx.reply('❗ መስመር አልተገኘም'); return; }
   try {
-    const list = await Reg.find({ routeId: ro.id, status: { $ne: 'rejected' } }).sort({ createdAt: 1 }).lean();
+    const list = await Reg.find({ routeId: ro.id, status: { $ne: 'rejected' } })
+      .sort({ status: 1, createdAt: 1 }).lean();
     if (!list.length) return ctx.reply(`${ro.emoji} *${ro.label}*\n\n📭 ምዝገባ የለም።`, { parse_mode: 'Markdown' });
-    const total = list.reduce((s, r) => s + (r.weightKg || 0), 0);
-    await ctx.reply(`🖨️ *${ro.label}*\n👥 ${list.length} ሰው | ⚖️ ${total} ኪሎ\n━━━━━━━━━━━━━━━━━━`, { parse_mode: 'Markdown' });
-    for (let i = 0; i < list.length; i += 20) {
-      let rows = '';
-      for (const [j, r] of list.slice(i, i + 20).entries()) {
-        const loc = r.locationLat ? `[📍](https://maps.google.com/?q=${r.locationLat},${r.locationLng})` : '—';
-        rows += `*${i+j+1}.* ${r.fullName||'—'} | 📞 ${r.phone||'—'} | ${r.weightKg}ኪሎ | ${STATUS_LABEL[r.status]} | ${loc}\n`;
+
+    const totalKg   = list.reduce((s, r) => s + (r.weightKg || 0), 0);
+    const totalReg  = list.reduce((s, r) => s + (r.weightKg || 0) * REG_PER_KG, 0);
+    const totalShip = list.reduce((s, r) => s + (r.weightKg || 0) * SHIP_PER_KG, 0);
+    const now = new Date().toLocaleDateString('am-ET', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    // ── ርዕስ ──
+    await ctx.reply(
+      `🖨️ *ፕሪንት ዝርዝር*\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `${ro.emoji} *${ro.label}*\n` +
+      `📅 ${now}\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `👥 ጠቅላላ ሰው: *${list.length}*\n` +
+      `⚖️ ጠቅላላ ኪሎ: *${totalKg} ኪሎ*\n` +
+      `💵 ምዝገባ ክፍያ (10ብ/ኪ): *${totalReg.toLocaleString()} ብር*\n` +
+      `🚛 የጭነት ክፍያ (25ብ/ኪ): *${totalShip.toLocaleString()} ብር*`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // ── በሁኔታ ቡድን ──
+    const groups = [
+      { key: 'approved',  header: '✅ ፈቃድ ያላቸው' },
+      { key: 'reviewing', header: '🔍 እየተፈተሸ ያለ' },
+      { key: 'pending',   header: '⏳ ክፍያ ያልከፈሉ' },
+      { key: 'sent',      header: '🚚 ጭነት የተላከ'  },
+    ];
+
+    let globalIndex = 1;
+
+    for (const grp of groups) {
+      const members = list.filter(r => r.status === grp.key);
+      if (!members.length) continue;
+
+      const grpKg = members.reduce((s, r) => s + (r.weightKg || 0), 0);
+
+      await ctx.reply(
+        `${grp.header} — ${members.length} ሰው | ${grpKg} ኪሎ\n` +
+        `─────────────────────`,
+        { parse_mode: 'Markdown' }
+      );
+
+      for (let i = 0; i < members.length; i += 15) {
+        let rows = '';
+        for (const r of members.slice(i, i + 15)) {
+          const loc     = r.locationLat
+            ? `[📍 ካርታ](https://maps.google.com/?q=${r.locationLat},${r.locationLng})`
+            : '📍 —';
+          const shipFee = ((r.weightKg || 0) * SHIP_PER_KG).toLocaleString();
+          rows +=
+            `*${globalIndex++}.* 👤 ${r.fullName || '—'}\n` +
+            `    📞 ${r.phone || '—'}\n` +
+            `    📦 ${r.cargoDesc || '—'} — *${r.weightKg} ኪሎ*\n` +
+            `    💵 ${shipFee} ብር  ${loc}\n` +
+            `    ─────────────────\n`;
+        }
+        await ctx.reply(rows.trim(), { parse_mode: 'Markdown', disable_web_page_preview: true });
       }
-      await ctx.reply(rows.trim(), { parse_mode: 'Markdown', disable_web_page_preview: true });
     }
-    await ctx.reply(`━━━━━━━━━━━━━━━━━━\n✅ *${list.length} ሰው* | *${total} ኪሎ*`, { parse_mode: 'Markdown' });
+
+    // ── ማጠቃለያ ──
+    await ctx.reply(
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `📋 *ማጠቃለያ*\n` +
+      `👥 ሰው: *${list.length}*  |  ⚖️ *${totalKg} ኪሎ*\n` +
+      `✅ ፈቃድ: ${list.filter(r => r.status === 'approved').length} ሰው\n` +
+      `🔍 ይፈተሻል: ${list.filter(r => r.status === 'reviewing').length} ሰው\n` +
+      `⏳ ክፍያ ይጠብቃል: ${list.filter(r => r.status === 'pending').length} ሰው\n` +
+      `🚚 ተልኳል: ${list.filter(r => r.status === 'sent').length} ሰው\n` +
+      `━━━━━━━━━━━━━━━━━━━━`,
+      { parse_mode: 'Markdown' }
+    );
+
   } catch (e) { await ctx.reply(`❌ ስህተት: ${e.message || 'unknown'}`); }
 });
 
+// ══ ቻናል ════════════════════════════════════════════════════
 bot.action('channel_panel', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
