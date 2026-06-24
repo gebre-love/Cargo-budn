@@ -345,6 +345,11 @@ const aiTxt = r => !r
 const bot = new Telegraf(BOT_TOKEN);
 bot.use(sessionMW);
 
+// ── ስህተት ቢመጣ ቦቱ ጨርሶ እንዳይዘጋ (24/7 stability) ──────────────
+bot.catch((err, ctx) => {
+  console.error('🔥 Bot error:', err?.message || err, '| update:', ctx?.updateType);
+});
+
 // ══ /start — የመግቢያ ማስታወቂያ ══════════════════════════════
 bot.start(async ctx => {
   ctx.session = {};
@@ -470,15 +475,20 @@ bot.action('print_pick', async ctx => {
 bot.action(/^print_([a-z_]+)$/, async ctx => {
   if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
   ctx.answerCbQuery().catch(() => {});
-  const ro = byRoute(ctx.match[1]);
-  if (!ro) return;
-  const list = await Reg.find({ routeId: ro.id, status: { $ne: 'rejected' } }).sort({ createdAt: 1 }).lean();
-  if (!list.length) return ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም።`);
-  const html = buildManifestHTML(ro, list);
-  await ctx.replyWithDocument(
-    { source: Buffer.from(html, 'utf-8'), filename: `${ro.id}_manifest.html` },
-    { caption: `🖨️ *${ro.label}*\n\nይህን ፋይል ይክፈቱ → ከውስጡ "🖨️ ፕሪንት" ቁልፍ ይጫኑ (ወይም Share → Print) → ከስልክዎ ጋር የተገናኘ printer ይምረጡ።`, parse_mode: 'Markdown' }
-  );
+  try {
+    const ro = byRoute(ctx.match[1]);
+    if (!ro) return ctx.reply(`❗ መስመር አልተገኘም: ${ctx.match[1]}`);
+    const list = await Reg.find({ routeId: ro.id, status: { $ne: 'rejected' } }).sort({ createdAt: 1 }).lean();
+    if (!list.length) return ctx.reply(`${ro.emoji} *${ro.label}*\n\n📭 ምዝገባ የለም — ለዚህ መስመር ገና ምንም ደንበኛ አልተመዘገበም።`, { parse_mode: 'Markdown' });
+    const html = buildManifestHTML(ro, list);
+    await ctx.replyWithDocument(
+      { source: Buffer.from(html, 'utf-8'), filename: `${ro.id}_manifest.html` },
+      { caption: `🖨️ *${ro.label}*\n\nይህን ፋይል ይክፈቱ → ከውስጡ "🖨️ ፕሪንት" ቁልፍ ይጫኑ (ወይም Share → Print) → ከስልክዎ ጋር የተገናኘ printer ይምረጡ።`, parse_mode: 'Markdown' }
+    );
+  } catch (e) {
+    console.error('print_:', e);
+    await ctx.reply(`❌ ስህተት ተፈጥሯል: ${e.message}`);
+  }
 });
 
 // ── ቻናል ቁጥጥር ──────────────────────────────────────────────
@@ -867,10 +877,20 @@ bot.on('photo', async ctx => {
   }
 });
 
+// ── ካልታወቀ ቁልፍ (debug) — ለ admin በ Render Logs ላይ ለመፍተሽ ─────
+bot.on('callback_query', async ctx => {
+  console.log('⚠️ ያልታወቀ ቁልፍ ተጭኗል:', ctx.callbackQuery.data);
+  await ctx.answerCbQuery('⚠️ ይህ ቁልፍ ጊዜው ያለፈበት ነው — እንደገና /start ይሞክሩ').catch(() => {});
+});
+
 // ══ LAUNCH ════════════════════════════════════════════════
 const http = require('http'), https = require('https');
 const PORT = Number(process.env.PORT) || 3000;
-mongoose.connect(MONGO_URI).then(() => {
+mongoose.connect(MONGO_URI, {
+  maxPoolSize: 20,           // ብዙ ተጠቃሚ በተመሳሳይ ጊዜ ሲጠቀሙ በቂ database connection ይኖራል
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+}).then(() => {
   console.log('✅ MongoDB');
   http.createServer((_, res) => { res.writeHead(200); res.end('OK'); })
     .listen(PORT, () => console.log('✅ Port', PORT));
