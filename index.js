@@ -303,8 +303,8 @@ function buildManifestHTML(ro, list) {
   <div class="box" style="background:#fff8e1"><div class="val">${cnt.reviewing}</div><div class="lbl">🔍 እየተፈተሸ</div></div>
   <div class="box" style="background:#fff"><div class="val">${cnt.pending}</div><div class="lbl">⏳ ያልከፈሉ</div></div>
   <div class="box" style="background:#e3f2fd"><div class="val">${cnt.sent}</div><div class="lbl">🚚 ተልኳል</div></div>
-  <div class="box"><div class="val">${totalReg.toLocaleString('en')}</div><div class="lbl">ምዝ ብር (${REG_PER_KG}×ኪ)</div></div>
-  <div class="box"><div class="val">${totalShip.toLocaleString('en')}</div><div class="lbl">ጭ ብር (${SHIP_PER_KG}×ኪ)</div></div>
+  <div class="box"><div class="val">${totalReg.toLocaleString('en')}</div><div class="lbl">የምዝገባ ክፍያ ብር (${REG_PER_KG}×ኪ)</div></div>
+  <div class="box"><div class="val">${totalShip.toLocaleString('en')}</div><div class="lbl">የጭነት ክፍያ ብር (${SHIP_PER_KG}×ኪ)</div></div>
 </div>
 
 <table>
@@ -315,8 +315,8 @@ function buildManifestHTML(ro, list) {
       <th>ስልክ</th>
       <th>ጭነት ዓይነት</th>
       <th style="text-align:center">ኪሎ</th>
-      <th style="text-align:center">ምዝ ብር</th>
-      <th style="text-align:center">ጭ ብር</th>
+      <th style="text-align:center">የምዝገባ ክፍያ</th>
+      <th style="text-align:center">የጭነት ክፍያ</th>
       <th style="text-align:center">ሁኔታ</th>
       <th style="text-align:center">አድራሻ</th>
     </tr>
@@ -525,7 +525,7 @@ bot.on('text', async (ctx, next) => {
     if (!kg || kg <= 0 || kg > 2000) return ctx.reply('ትክክለኛ ቁጥር (1–2000)');
     ctx.session.d.kg = kg; ctx.session.step = 'PAYMETHOD';
     return ctx.reply(
-      `*${ctx.session.d.name}* | ${ctx.session.d.cargo} — ${kg}ኪሎ\nምዝ ክፍያ: *${kg*REG_PER_KG}ብር* | ጭ ክፍያ: ${kg*SHIP_PER_KG}ብር (ሲሰበሰብ)\n\nክፍያ መንገድ:`,
+      `*${ctx.session.d.name}* | ${ctx.session.d.cargo} — ${kg}ኪሎ\nየምዝገባ ክፍያ: *${kg*REG_PER_KG}ብር* | የጭነት ክፍያ: ${kg*SHIP_PER_KG}ብር (ሲሰበሰብ)\n\nክፍያ መንገድ:`,
       { parse_mode:'Markdown', ...Markup.inlineKeyboard(METHODS.map(m=>[Markup.button.callback(`${m.emoji} ${m.label}`,`pm_${m.id}`)]))  }
     );
   }
@@ -588,7 +588,7 @@ bot.on('location', async (ctx, next) => {
     const total = await routeWeight(r.routeId);
     const ro2   = byRoute(r.routeId);
     await ctx.reply(
-      `✅ ምዝገባ ተጠናቀቀ!\n\n${ro2?.label}\n${capLine(total, ro2?.targetKg||TARGET_KG_DEFAULT)}\n\nጭነቱ ሲሞላ ቤትዎ ይሰበሰብዎታል 🏠\n${SUPPORT_PHONE}`,
+      `✅ ምዝገባ ተጠናቀቀ!\n\n${ro2?.label}\n${capLine(total, ro2?.targetKg||TARGET_KG_DEFAULT)}\n\nጭነቱ ሲሞላ ቤትዎ ይሰበሰብለዎታል 🏠\n${SUPPORT_PHONE}`,
       { parse_mode:'Markdown', ...mainKb() }
     );
     for (const aid of ADMIN_IDS) {
@@ -631,7 +631,7 @@ bot.on('photo', async ctx => {
     { parse_mode:'Markdown' }
   ).catch(()=>{});
   ctx.session = { step:'LOC', locRegId:String(r._id), locTries:0 };
-  await ctx.reply('አድራሻዎን ያጋሩ — ቤትዎ ይሰበሰብዎታል 👇', locKb());
+  await ctx.reply('አድራሻዎን ያጋሩ — ቤትዎ ይሰበሰብለዎታል 👇', locKb());
   const caption = aiSummary(verdict)+'\n\n'+(autoOk?'✅ AI ያረጋገጠ\n\n':'')+card(r.toObject(),true);
   const kb = Markup.inlineKeyboard([[
     Markup.button.callback(autoOk?'↩️ ሰርዝ':'✅ ፈቀድ', autoOk?`no_${r._id}`:`ok_${r._id}`),
@@ -833,9 +833,7 @@ bot.command('broadcast', async ctx => {
   await ctx.reply(`✅ ተልኳል: ${sent} | ❌ አልደረሳቸውም: ${failed}`);
 });
 
-bot.on('callback_query', async ctx => {
-  await ctx.answerCbQuery('ጊዜው አልፏል — /start ይሞክሩ').catch(()=>{});
-});
+
 
 // ── LAUNCH ──
 const PORT = Number(process.env.PORT) || 3000;
