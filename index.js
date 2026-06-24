@@ -173,7 +173,7 @@ function card(r, admin = false) {
     `💰 የምዝገባ ክፍያ: ${r.totalPrice} ብር (${REG_PER_KG}ብር × ${r.weightKg}ኪሎ)\n` +
     `💰 የጭነት ክፍያ: ${r.weightKg * 25} ብር — _ሲሰበሰብ ይከፈላል_\n` +
     `💳 ክፍያ: ${me?.label || '—'}\n` +
-    `📍 ቦታ: ${r.locationLat ? `[Maps](https://maps.google.com/?q=${r.locationLat},${r.locationLng})` : 'አልተላከም'}\n` +
+    `📍 አድራሻ: ${r.locationLat ? `[Maps](https://maps.google.com/?q=${r.locationLat},${r.locationLng})` : 'አልተላከም'}\n` +
     `📊 ሁኔታ: ${ST[r.status]}`;
   if (r.aiAutoApproved) t += '\n🤖 AI ያረጋገጠ';
   if (admin) t += `\nTG: \`${r.userId}\`${r.username ? ' @' + r.username : ''}`;
@@ -188,8 +188,8 @@ const mainKb = () => Markup.keyboard([
 ]).resize();
 
 const locKb = () => Markup.keyboard([
-  [Markup.button.locationRequest('📍 ቦታዬን አጋራ')],
-  ['⏭️ ቦታ ሳላጋራ ቀጥል'],
+  [Markup.button.locationRequest('📍 አድራሻዬን አጋራ')],
+  ['⏭️ አድራሻ ሳላጋራ ቀጥል'],
 ]).resize().oneTime();
 
 const okNoKb = id => Markup.inlineKeyboard([[
@@ -236,7 +236,7 @@ async function checkCapacity(routeId) {
     const txt =
       `🚛 *${ro.label}*\n\n` +
       `📦 ጭነቱ ሞላ! (${total}/${ro.targetKg} ኪሎ)\n\n` +
-      `✅ *ተዘጋጁ!* ጭነታችሁ በቅርቡ ይነሳል።\n\n` +
+      `✅ *ድርጅታችን በቅርቡ ባሉበት አድራሻ መጥቶ እቃዎን ይረከባል!* ዝግጁ ይሁኑ።\n\n` +
       `❓ ${SUPPORT_PHONE}`;
     for (const m of members) tell(m.userId, txt);
     for (const aid of ADMIN_IDS) tell(aid, `📊 ${ro.label} ሞልቷል — ${total}/${ro.targetKg}ኪሎ (${members.length} ሰው) 🚚 ለመላክ ዝግጁ ነው።`);
@@ -311,7 +311,7 @@ ROUTES.forEach(route => {
     if (ex) {
       const btns = [];
       btns.push(Markup.button.callback('🗑️ ሰርዝ', `del_${ex._id}`));
-      if (!ex.locationLat) btns.push(Markup.button.callback('📍 ቦታ ላክ', `addloc_${ex._id}`));
+      if (!ex.locationLat) btns.push(Markup.button.callback('📍 አድራሻ ላክ', `addloc_${ex._id}`));
       return ctx.reply(
         card(ex) + '\n\n_⚠️ ቀደም ሲል ተመዝግበዋል_',
         { parse_mode: 'Markdown', ...(btns.length ? Markup.inlineKeyboard([btns]) : {}) }
@@ -340,7 +340,7 @@ bot.hears('📋 የምዝገባ ሁኔታ', async ctx => {
   for (const r of list) {
     const btns = [];
     if (r.status !== 'sent') btns.push(Markup.button.callback('🗑️ ሰርዝ', `del_${r._id}`));
-    if (!r.locationLat && r.status !== 'sent') btns.push(Markup.button.callback('📍 ቦታ ላክ', `addloc_${r._id}`));
+    if (!r.locationLat && r.status !== 'sent') btns.push(Markup.button.callback('📍 አድራሻ ላክ', `addloc_${r._id}`));
     await ctx.reply(card(r), { parse_mode: 'Markdown', ...(btns.length ? Markup.inlineKeyboard([btns]) : {}) });
   }
 });
@@ -362,7 +362,7 @@ bot.action(/^addloc_([a-f\d]{24})$/i, async ctx => {
   const r = await Reg.findById(ctx.match[1]);
   if (!r || r.userId !== ctx.from.id) return;
   ctx.session = { step: 'LOC', locRegId: String(r._id), locTries: 0 };
-  await ctx.reply('📍 *ቦታዎን ያጋሩ:*\n\n👇 ከታች ያለውን ቁልፍ ይጫኑ', { parse_mode: 'Markdown', ...locKb() });
+  await ctx.reply('📍 *አድራሻዎን ያጋሩ:*\n\n👇 ከታች ያለውን ቁልፍ ይጫኑ', { parse_mode: 'Markdown', ...locKb() });
 });
 
 // ══ Admin ════════════════════════════════════════════════
@@ -539,11 +539,11 @@ bot.on('location', async (ctx, next) => {
     const r = await Reg.findByIdAndUpdate(regId, { locationLat: lat, locationLng: lng }, { new: true });
     if (!r) return ctx.reply('❗ ምዝገባ አልተገኘም።', mainKb());
     await ctx.reply(
-      '✅ *ቦታዎ ተመዝግቧል!*\n\nቡድናችን ጭነቱን ሊሰበስብ ይመጣል። 🚛',
+      '✅ *አድራሻዎ ተመዝግቧል! ምዝገባዎ ሙሉ በሙሉ ተጠናቋል።*\n\nየፈለገው ክብደት ሲሟላ ድርጅታችን ባሉበት አድራሻ መጥቶ እቃዎን ይረከባል። 🚛',
       { parse_mode: 'Markdown', ...mainKb() }
     );
     for (const aid of ADMIN_IDS) {
-      tell(aid, `📍 ቦታ ደርሷል — ${r.fullName} → ${byRoute(r.routeId)?.label}`);
+      tell(aid, `📍 አድራሻ ደርሷል — ${r.fullName} → ${byRoute(r.routeId)?.label}`);
       bot.telegram.sendLocation(aid, lat, lng).catch(() => {});
     }
     return;
@@ -552,17 +552,17 @@ bot.on('location', async (ctx, next) => {
   return next();
 });
 
-bot.hears('⏭️ ቦታ ሳላጋራ ቀጥል', async ctx => {
+bot.hears('⏭️ አድራሻ ሳላጋራ ቀጥል', async ctx => {
   if (ctx.session?.step !== 'LOC') return ctx.reply('👇 መስመር ይምረጡ።', mainKb());
   const regId = ctx.session.locRegId;
   ctx.session = {};
   await ctx.reply(
-    '✅ *ምዝገባ ተጠናቋል!*\n\nቦታ ኋላ ለማጨምር:\n"📋 የምዝገባ ሁኔታ" → 📍 ቦታ ላክ ይጫኑ።',
+    '✅ *ምዝገባ ተጠናቋል!*\n\nአድራሻ ኋላ ለማጨምር:\n"📋 የምዝገባ ሁኔታ" → 📍 አድራሻ ላክ ይጫኑ።',
     { parse_mode: 'Markdown', ...mainKb() }
   );
   if (regId) {
     const r = await Reg.findById(regId).lean();
-    if (r) for (const aid of ADMIN_IDS) tell(aid, `⚠️ ቦታ አልተላከም — ${r.fullName} (${r.phone})`);
+    if (r) for (const aid of ADMIN_IDS) tell(aid, `⚠️ አድራሻ አልተላከም — ${r.fullName} (${r.phone})`);
   }
 });
 
@@ -601,7 +601,7 @@ bot.on('text', async (ctx, next) => {
 
   // የ keyboard ቁልፎች ጋር conflict እንዳይኖር
   if (ROUTES.some(r => txt === `${r.emoji} ${r.label}`) ||
-      txt === '📋 የምዝገባ ሁኔታ' || txt === '📊 የጭነት ሙሉነት' || txt === '🔧 Admin' || txt === '⏭️ ቦታ ሳላጋራ ቀጥል') {
+      txt === '📋 የምዝገባ ሁኔታ' || txt === '📊 የጭነት ሙሉነት' || txt === '🔧 Admin' || txt === '⏭️ አድራሻ ሳላጋራ ቀጥል') {
     return next();
   }
 
@@ -701,7 +701,7 @@ bot.on('photo', async ctx => {
   );
   ctx.session = { step: 'LOC', locRegId: String(r._id), locTries: 0 };
   await ctx.reply(
-    '📍 *ጭነቱ የሚሰበሰብበት ቦታ ያጋሩ:*\n\n👇 "📍 ቦታዬን አጋራ" ይጫኑ',
+    '📍 *ጭነቱ የሚሰበሰብበት አድራሻ ያጋሩ:*\n\n👇 "📍 አድራሻዬን አጋራ" ይጫኑ',
     { parse_mode: 'Markdown', ...locKb() }
   );
   const caption = aiTxt(result) + '\n\n' + (autoOk ? '✅ AI ያረጋገጠ\n\n' : '') + card(r.toObject(), true);
