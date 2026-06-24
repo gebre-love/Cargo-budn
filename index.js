@@ -12,58 +12,68 @@ const ADMIN_IDS       = (process.env.ADMIN_IDS || '').split(',').map(s => Number
 const REG_PER_KG      = 10;  // የምዝገባ ክፍያ ለኪሎ (ብቻ ይከፈላል — ጭነት ሲሰበሰብ)
 const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY || '';
 const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
+const TARGET_KG_DEFAULT = Number(process.env.TARGET_KG_DEFAULT) || 3000; // የጭነት መኪና አቅም በኪሎ (ነባራዊ)
 
 if (!BOT_TOKEN || !MONGO_URI) { console.error('BOT_TOKEN እና MONGO_URI ያስፈልጋሉ'); process.exit(1); }
 const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
 
 // ══ መስመሮች — እያንዳንዱ መድረሻ ራሱ የጉዞ መስመር ═══════════════════
+// targetKg = ለዚህ መስመር የመኪናው የጭነት አቅም (ኪሎ)። እያንዳንዱን መስመር በተናጠል ማስተካከል ይቻላል።
 const ROUTES = [
   {
     id: 'finotselam',
     label: 'አዲስ አበባ → ፍኖተሰላም',
     emoji: '🟢',
+    targetKg: TARGET_KG_DEFAULT,
     stops: [{ id: 'finotselam', label: 'ፍኖተሰላም' }],
   },
   {
     id: 'debre_markos',
     label: 'አዲስ አበባ → ደብረ ማርቆስ',
     emoji: '🔵',
+    targetKg: TARGET_KG_DEFAULT,
     stops: [{ id: 'debre_markos', label: 'ደብረ ማርቆስ' }],
   },
   {
     id: 'mota',
     label: 'አዲስ አበባ → ሞጣ',
     emoji: '🟤',
+    targetKg: TARGET_KG_DEFAULT,
     stops: [{ id: 'mota', label: 'ሞጣ' }],
   },
   {
     id: 'bahirdar',
     label: 'አዲስ አበባ → ባህር ዳር',
     emoji: '🔵',
+    targetKg: TARGET_KG_DEFAULT,
     stops: [{ id: 'bahirdar', label: 'ባህር ዳር' }],
   },
   {
     id: 'gondar',
     label: 'አዲስ አበባ → ጎንደር',
     emoji: '🟣',
+    targetKg: TARGET_KG_DEFAULT,
     stops: [{ id: 'gondar', label: 'ጎንደር' }],
   },
   {
     id: 'debre_berhan',
     label: 'አዲስ አበባ → ደብረ ብርሃን',
     emoji: '🟡',
+    targetKg: TARGET_KG_DEFAULT,
     stops: [{ id: 'debre_berhan', label: 'ደብረ ብርሃን' }],
   },
   {
     id: 'kemissie',
     label: 'አዲስ አበባ → ከሚሴ',
     emoji: '🟠',
+    targetKg: TARGET_KG_DEFAULT,
     stops: [{ id: 'kemissie', label: 'ከሚሴ' }],
   },
   {
     id: 'dessie',
     label: 'አዲስ አበባ → ደሴ',
     emoji: '🔴',
+    targetKg: TARGET_KG_DEFAULT,
     stops: [{ id: 'dessie', label: 'ደሴ' }],
   },
 ];
@@ -76,6 +86,9 @@ const METHODS = [
 const byRoute  = id => ROUTES.find(r => r.id === id);
 const byMethod = id => METHODS.find(m => m.id === id);
 const byStop   = (ro, sid) => ro?.stops.find(s => s.id === sid);
+
+// ── ንቁ (ገና ያልተላከ፣ ያልተከለከለ) ምዝገባ ምን status እንደያዘ ─────────
+const ACTIVE_STATUSES = ['pending', 'reviewing', 'approved'];
 
 // ══ DB ═══════════════════════════════════════════════════
 const Reg = mongoose.model('Reg', new mongoose.Schema({
@@ -114,6 +127,12 @@ const Session = mongoose.model('Session', new mongoose.Schema({
   key:       { type: String, unique: true },
   data:      { type: mongoose.Schema.Types.Mixed, default: {} },
   updatedAt: { type: Date, default: Date.now, index: { expireAfterSeconds: 86400 * 3 } },
+}));
+
+// ── ለእያንዳንዱ መስመር የክብደት መሙያ ማሳወቂያ ቁጥጥር ─────────────────
+const RouteCap = mongoose.model('RouteCap', new mongoose.Schema({
+  routeId:  { type: String, unique: true },
+  notified: { type: Boolean, default: false },
 }));
 
 // ══ SESSION ══════════════════════════════════════════════
@@ -164,7 +183,7 @@ function card(r, admin = false) {
 // ── Main keyboard ─────────────────────────────────────────
 const mainKb = () => Markup.keyboard([
   ...ROUTES.map(r => [`${r.emoji} ${r.label}`]),
-  ['📋 የምዝገባ ሁኔታ'],
+  ['📋 የምዝገባ ሁኔታ', '📊 የጭነት ሙሉነት'],
   ...(ADMIN_IDS.length ? [['🔧 Admin']] : []),
 ]).resize();
 
@@ -180,6 +199,52 @@ const okNoKb = id => Markup.inlineKeyboard([[
 
 async function tell(uid, txt) {
   await bot.telegram.sendMessage(uid, txt, { parse_mode: 'Markdown' }).catch(() => {});
+}
+
+// ══ የጭነት ክብደት ቆጣሪ (Capacity tracking) ═══════════════════
+// ንቁ (pending/reviewing/approved) ምዝገባዎች ጠቅላላ ክብደት ለመስመሩ
+async function routeWeight(routeId) {
+  const res = await Reg.aggregate([
+    { $match: { routeId, status: { $in: ACTIVE_STATUSES } } },
+    { $group: { _id: null, total: { $sum: '$weightKg' } } },
+  ]);
+  return res[0]?.total || 0;
+}
+
+async function activeMembers(routeId) {
+  return Reg.find({ routeId, status: { $in: ACTIVE_STATUSES } }).lean();
+}
+
+function progressBar(total, target) {
+  const pct = Math.max(0, Math.min(100, Math.round((total / target) * 100)));
+  const filled = Math.round(pct / 10);
+  return { pct, bar: '█'.repeat(filled) + '░'.repeat(10 - filled) };
+}
+
+// ኢላማው ሲሞላ ለሁሉም ንቁ ተመዝጋቢዎች "ተዘጋጁ" ይልካል (በተደጋጋሚ እንዳይላክ flag ይጠቀማል)
+async function checkCapacity(routeId) {
+  const ro = byRoute(routeId);
+  if (!ro) return;
+  const total = await routeWeight(routeId);
+  let cap = await RouteCap.findOne({ routeId });
+  if (!cap) cap = await RouteCap.create({ routeId, notified: false });
+
+  if (total >= ro.targetKg && !cap.notified) {
+    cap.notified = true;
+    await cap.save();
+    const members = await activeMembers(routeId);
+    const txt =
+      `🚛 *${ro.label}*\n\n` +
+      `📦 ጭነቱ ሞላ! (${total}/${ro.targetKg} ኪሎ)\n\n` +
+      `✅ *ተዘጋጁ!* ጭነታችሁ በቅርቡ ይነሳል።\n\n` +
+      `❓ ${SUPPORT_PHONE}`;
+    for (const m of members) tell(m.userId, txt);
+    for (const aid of ADMIN_IDS) tell(aid, `📊 ${ro.label} ሞልቷል — ${total}/${ro.targetKg}ኪሎ (${members.length} ሰው) 🚚 ለመላክ ዝግጁ ነው።`);
+  } else if (total < ro.targetKg && cap.notified) {
+    // ክብደት ከኢላማው በታች ስለወረደ (ሰው ሰርዟል/ተከልክሏል) ለሚቀጥለው ዙር ዳግም ሊያሳውቅ ይችላል
+    cap.notified = false;
+    await cap.save();
+  }
 }
 
 // ══ AI ═══════════════════════════════════════════════════
@@ -224,7 +289,7 @@ bot.start(async ctx => {
     '📦 *የጋራ ጭነት አገልግሎት*\n' +
     '_አማራ ክልል — ፈጣን እና ርካሽ_\n\n' +
     '✨ *ጥቅሞቻችን:*\n' +
-    '💰 የምዝገባ ክፍያ — *10 ብር / ኪሎ* (አሁን ይከፈላል)\n' +
+    '💰 የምዝገባ ክፍያ — *10 ብር / ኪሎ* (አሁን ይከፈላል — ለአንድ ጊዜ ምዝገባ ብቻ)\n' +
     '🚛 የጭነት ክፍያ — *25 ብር / ኪሎ* (ሲሰበሰብ ይከፈላል)\n' +
     '🏠 ቤትዎ ድረስ እንሰበስባለን\n' +
     '🤝 ከሌሎች ጋር በአንድ መኪና\n' +
@@ -238,22 +303,22 @@ bot.start(async ctx => {
 ROUTES.forEach(route => {
   bot.hears(`${route.emoji} ${route.label}`, async ctx => {
 
-    // ቀደም ሲል ምዝገባ?
+    // ቀደም ሲል ምዝገባ? — "sent" ከሆነ ግን ጭነቱ ቀድሞ ስለተላከ ድጋሜ መመዝገብ ይቻላል (እንደ አዲስ ይከፍላሉ)
     const ex = await Reg.findOne({
-      userId: ctx.from.id, routeId: route.id, status: { $nin: ['rejected'] }
+      userId: ctx.from.id, routeId: route.id, status: { $nin: ['rejected', 'sent'] }
     }).lean();
 
     if (ex) {
       const btns = [];
-      if (ex.status !== 'sent') btns.push(Markup.button.callback('🗑️ ሰርዝ', `del_${ex._id}`));
-      if (!ex.locationLat && ex.status !== 'sent') btns.push(Markup.button.callback('📍 ቦታ ላክ', `addloc_${ex._id}`));
+      btns.push(Markup.button.callback('🗑️ ሰርዝ', `del_${ex._id}`));
+      if (!ex.locationLat) btns.push(Markup.button.callback('📍 ቦታ ላክ', `addloc_${ex._id}`));
       return ctx.reply(
         card(ex) + '\n\n_⚠️ ቀደም ሲል ተመዝግበዋል_',
         { parse_mode: 'Markdown', ...(btns.length ? Markup.inlineKeyboard([btns]) : {}) }
       );
     }
 
-    // ወዲያውኑ ምዝገባ ይጀምራል
+    // ወዲያውኑ ምዝገባ ይጀምራል (አዲስ ምዝገባ ስለሆነ የምዝገባ ክፍያ ድጋሜ ይከፈላል)
     const stop = route.stops[0];
     ctx.session = { step: 'NAME', routeId: route.id, d: { stopId: stop.id } };
     await ctx.reply(
@@ -267,7 +332,7 @@ ROUTES.forEach(route => {
 // ══ Status ═══════════════════════════════════════════════
 bot.hears('📋 የምዝገባ ሁኔታ', async ctx => {
   ctx.session = {};
-  const list = await Reg.find({ userId: ctx.from.id, status: { $nin: ['rejected'] } }).lean();
+  const list = await Reg.find({ userId: ctx.from.id, status: { $nin: ['rejected'] } }).sort({ createdAt: -1 }).lean();
   if (!list.length) return ctx.reply(
     '📭 *ምዝገባ የለዎትም።*\n\n👇 መስመር ይምረጡ እና ይመዝገቡ!',
     { parse_mode: 'Markdown', ...mainKb() }
@@ -278,6 +343,18 @@ bot.hears('📋 የምዝገባ ሁኔታ', async ctx => {
     if (!r.locationLat && r.status !== 'sent') btns.push(Markup.button.callback('📍 ቦታ ላክ', `addloc_${r._id}`));
     await ctx.reply(card(r), { parse_mode: 'Markdown', ...(btns.length ? Markup.inlineKeyboard([btns]) : {}) });
   }
+});
+
+// ── 📊 የጭነት ሙሉነት — ለሁሉም ሰው የሚታይ የክብደት ቆጣሪ ───────────────
+bot.hears('📊 የጭነት ሙሉነት', async ctx => {
+  ctx.session = {};
+  let txt = '📊 *የጭነት ሙሉነት ሁኔታ*\n━━━━━━━━━━━━━━━━━━\n';
+  for (const ro of ROUTES) {
+    const total = await routeWeight(ro.id);
+    const { pct, bar } = progressBar(total, ro.targetKg);
+    txt += `\n${ro.emoji} *${ro.label}*\n${bar}  ${total}/${ro.targetKg} ኪሎ (${pct}%)\n`;
+  }
+  await ctx.reply(txt, { parse_mode: 'Markdown', ...mainKb() });
 });
 
 bot.action(/^addloc_([a-f\d]{24})$/i, async ctx => {
@@ -310,8 +387,10 @@ bot.action(/^lst_([a-z_]+)$/, async ctx => {
   if (!list.length) return ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም።`);
   const c = {};
   list.forEach(r => { c[r.status] = (c[r.status] || 0) + 1; });
+  const total = await routeWeight(ro.id);
+  const { pct, bar } = progressBar(total, ro.targetKg);
   await ctx.reply(
-    `${ro.emoji} *${ro.label}*\nጠቅላላ:${list.length} ⏳${c.pending||0} 🔍${c.reviewing||0} ✅${c.approved||0} 🚚${c.sent||0}`,
+    `${ro.emoji} *${ro.label}*\nጠቅላላ:${list.length} ⏳${c.pending||0} 🔍${c.reviewing||0} ✅${c.approved||0} 🚚${c.sent||0}\n\n📊 ${bar} ${total}/${ro.targetKg}ኪሎ (${pct}%)`,
     { parse_mode: 'Markdown' }
   );
   for (const r of list) {
@@ -341,6 +420,7 @@ async function setStatus(ctx, id, status, msgFn) {
   const fn = ctx.editMessageCaption ? 'editMessageCaption' : 'editMessageText';
   await ctx[fn](card(r.toObject(), true), { parse_mode: 'Markdown' }).catch(() => {});
   if (msgFn) await tell(r.userId, msgFn(r));
+  await checkCapacity(r.routeId); // ሁኔታ ሲቀየር (በተለይ ውድቅ ሲሆን) ቆጣሪውን አዘምን
 }
 
 bot.action(/^ok_([a-f\d]{24})$/i, async ctx => {
@@ -365,8 +445,10 @@ bot.action(/^del_([a-f\d]{24})$/i, async ctx => {
   if (!r) return;
   if (r.userId !== ctx.from.id && !isAdmin(ctx)) return;
   if (r.status === 'sent') return ctx.reply('⚠️ ጭነቱ ቀድሞ ተልኳል። መሰረዝ አይቻልም።');
+  const routeId = r.routeId;
   await r.deleteOne();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await checkCapacity(routeId); // ሰርዘት ስለሆነ ክብደቱ ቀንሷል፣ ቆጣሪውን አዘምን
   ctx.reply('🗑️ ምዝገባ ተሰርዟል።\n\n👇 እንደገና ለመመዝገብ መስመር ይምረጡ።', mainKb());
 });
 
@@ -399,7 +481,8 @@ bot.action('report', async ctx => {
   for (const ro of ROUTES) {
     const counts = await Reg.aggregate([{ $match: { routeId: ro.id } }, { $group: { _id: '$status', n: { $sum: 1 } } }]);
     const m = {}; counts.forEach(c => { m[c._id] = c.n; });
-    txt += `\n${ro.emoji} ${ro.label}\n⏳${m.pending||0} 🔍${m.reviewing||0} ✅${m.approved||0} 🚚${m.sent||0}`;
+    const total = await routeWeight(ro.id);
+    txt += `\n${ro.emoji} ${ro.label}\n⏳${m.pending||0} 🔍${m.reviewing||0} ✅${m.approved||0} 🚚${m.sent||0}\n📊 ${total}/${ro.targetKg}ኪሎ`;
   }
   await ctx.reply(txt, { parse_mode: 'Markdown' });
 });
@@ -498,6 +581,7 @@ bot.action(/^pm_(.+)$/, async ctx => {
     cargoDesc: d.cargo, weightKg: d.kg, totalPrice: d.price,
     paymentMethod: m.id, status: 'pending',
   });
+  await checkCapacity(routeId); // አዲስ ምዝገባ ስለገባ ቆጣሪውን አዘምን
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   const num = m.info.includes(':') ? m.info.split(':').slice(1).join(':').trim() : m.info;
   await ctx.reply(
@@ -517,7 +601,7 @@ bot.on('text', async (ctx, next) => {
 
   // የ keyboard ቁልፎች ጋር conflict እንዳይኖር
   if (ROUTES.some(r => txt === `${r.emoji} ${r.label}`) ||
-      txt === '📋 የምዝገባ ሁኔታ' || txt === '🔧 Admin' || txt === '⏭️ ቦታ ሳላጋራ ቀጥል') {
+      txt === '📋 የምዝገባ ሁኔታ' || txt === '📊 የጭነት ሙሉነት' || txt === '🔧 Admin' || txt === '⏭️ ቦታ ሳላጋራ ቀጥል') {
     return next();
   }
 
@@ -531,7 +615,6 @@ bot.on('text', async (ctx, next) => {
   if (step === 'PHONE') {
     ctx.session.d.phone = txt;
     ctx.session.step    = 'CARGO';
-    // ── ምሳሌ ለውጥ — ሲሚንቶ ተወግዶ ልብስ/እቃ ሆነ ──
     return ctx.reply(
       '📦 *ጭነት ዓይነት ያስገቡ:*\n_ለምሳሌ: ልብስ, እቃ_',
       { parse_mode: 'Markdown' }
@@ -578,6 +661,8 @@ bot.on('text', async (ctx, next) => {
     const bid = `${ro?.id.toUpperCase()}-${Date.now()}`;
     await Batch.create({ batchId: bid, routeId: ro?.id, memberIds: ready.map(r => r.userId), note: txt });
     await Reg.updateMany({ _id: { $in: ready.map(r => r._id) } }, { status: 'sent', batchId: bid });
+    // ይህ ጭነት ስለተላከ ቆጣሪው ለቀጣዩ ዙር ይዳስ (reset) — የክብደት ድምር ራሱ ወደ 0 ይመለሳል ምክንያቱም sent active አይቆጠርም
+    await RouteCap.findOneAndUpdate({ routeId: ro?.id }, { notified: false }, { upsert: true });
     let sent = 0;
     for (const r of ready) {
       try {
