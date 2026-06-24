@@ -9,8 +9,9 @@ const BOT_TOKEN       = (process.env.BOT_TOKEN || '').trim();
 const MONGO_URI       = process.env.MONGO_URI  || '';
 const SUPPORT_PHONE   = process.env.SUPPORT_PHONE || '0960336138';
 const ADMIN_IDS       = (process.env.ADMIN_IDS || '').split(',').map(s => Number(s.trim())).filter(Boolean);
-const REG_FEE         = 10;   // የምዝገባ ክፍያ (አንድ ጊዜ)
-const PRICE_PER_KG    = 25;  // የጭነት ዋጋ ለኪሎ
+const REG_PER_KG      = 10;  // የምዝገባ ክፍያ ለኪሎ
+const CARGO_PER_KG    = 25;  // የጭነት ክፍያ ለኪሎ
+const TOTAL_PER_KG    = REG_PER_KG + CARGO_PER_KG; // 35 ብር / ኪሎ
 const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY || '';
 const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
 
@@ -152,8 +153,8 @@ function card(r, admin = false) {
     `📞 ስልክ: ${r.phone}\n` +
     `🚛 መስመር: ${ro?.label}\n` +
     `📦 ጭነት: ${r.cargoDesc} — ${r.weightKg} ኪሎ\n` +
-    `💰 የምዝገባ ክፍያ: ${REG_FEE} ብር\n` +
-    `💰 የጭነት ክፍያ: ${r.weightKg * PRICE_PER_KG} ብር (${PRICE_PER_KG}ብር × ${r.weightKg}ኪሎ)\n` +
+    `💰 የምዝገባ ክፍያ: ${r.weightKg * REG_PER_KG} ብር (${REG_PER_KG}ብር × ${r.weightKg}ኪሎ)\n` +
+    `💰 የጭነት ክፍያ: ${r.weightKg * CARGO_PER_KG} ብር (${CARGO_PER_KG}ብር × ${r.weightKg}ኪሎ)\n` +
     `💵 ጠቅላላ: ${r.totalPrice} ብር\n` +
     `💳 ክፍያ: ${me?.label || '—'}\n` +
     `📍 ቦታ: ${r.locationLat ? `[Maps](https://maps.google.com/?q=${r.locationLat},${r.locationLng})` : 'አልተላከም'}\n` +
@@ -226,8 +227,9 @@ bot.start(async ctx => {
     '📦 *የጋራ ጭነት አገልግሎት*\n' +
     '_አማራ ክልል — ፈጣን እና ርካሽ_\n\n' +
     '✨ *ጥቅሞቻችን:*\n' +
-    '💰 የምዝገባ ክፍያ — *10 ብር* (አንድ ጊዜ)\n' +
+    '💰 የምዝገባ ክፍያ — *10 ብር / ኪሎ*\n' +
     '📦 የጭነት ክፍያ — *25 ብር / ኪሎ*\n' +
+    '💵 ጠቅላላ — *35 ብር / ኪሎ*\n' +
     '🏠 ቤትዎ ድረስ እንሰበስባለን\n' +
     '🤝 ከሌሎች ጋር በአንድ መኪና\n' +
     '⚡ ፈጣን እና ደህንነቱ የተጠበቀ\n\n' +
@@ -548,14 +550,14 @@ bot.on('text', async (ctx, next) => {
     const kg = parseFloat(txt.replace(/[^0-9.]/g, ''));
     if (!kg || kg <= 0) return ctx.reply('⚠️ እባክዎ ቁጥር ያስገቡ\n_ለምሳሌ: 50_', { parse_mode: 'Markdown' });
     ctx.session.d.kg    = kg;
-    ctx.session.d.price = REG_FEE + (kg * PRICE_PER_KG);
+    ctx.session.d.price = kg * TOTAL_PER_KG;
     ctx.session.step    = 'PAYMETHOD';
     return ctx.reply(
       `📊 *የዋጋ ዝርዝር:*\n\n` +
-      `📝 የምዝገባ ክፍያ: *${REG_FEE} ብር*\n` +
-      `📦 የጭነት ክፍያ: *${kg * PRICE_PER_KG} ብር* (${PRICE_PER_KG}ብር × ${kg}ኪሎ)\n` +
+      `📝 የምዝገባ ክፍያ: *${kg * REG_PER_KG} ብር* (${REG_PER_KG}ብር × ${kg}ኪሎ)\n` +
+      `📦 የጭነት ክፍያ: *${kg * CARGO_PER_KG} ብር* (${CARGO_PER_KG}ብር × ${kg}ኪሎ)\n` +
       `━━━━━━━━━━━━━━\n` +
-      `💵 ጠቅላላ: *${REG_FEE + kg * PRICE_PER_KG} ብር*\n\n` +
+      `💵 ጠቅላላ: *${kg * TOTAL_PER_KG} ብር* (${TOTAL_PER_KG}ብር × ${kg}ኪሎ)\n\n` +
       `💳 *ክፍያ መንገድ ይምረጡ:*`,
       {
         parse_mode: 'Markdown',
