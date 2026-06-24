@@ -312,9 +312,10 @@ ROUTES.forEach(route => {
       const btns = [];
       btns.push(Markup.button.callback('🗑️ ሰርዝ', `del_${ex._id}`));
       if (!ex.locationLat) btns.push(Markup.button.callback('📍 አድራሻ ላክ', `addloc_${ex._id}`));
+      btns.push(Markup.button.callback('➕ ሌላ እቃ ጨምር', `addmore_${route.id}`));
       return ctx.reply(
         card(ex) + '\n\n_⚠️ ቀደም ሲል ተመዝግበዋል_',
-        { parse_mode: 'Markdown', ...(btns.length ? Markup.inlineKeyboard([btns]) : {}) }
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard([btns]) }
       );
     }
 
@@ -329,7 +330,21 @@ ROUTES.forEach(route => {
   });
 });
 
-// ══ Status ═══════════════════════════════════════════════
+bot.action(/^addmore_([a-z_]+)$/, async ctx => {
+  ctx.answerCbQuery().catch(() => {});
+  const route = byRoute(ctx.match[1]);
+  if (!route) return;
+  const stop = route.stops[0];
+  ctx.session = { step: 'NAME', routeId: route.id, d: { stopId: stop.id } };
+  await ctx.reply(
+    `${route.emoji} *${route.label}*\n\n` +
+    `➕ *ለሌላ እቃ አዲስ ምዝገባ*\n\n` +
+    `👤 *ሙሉ ስምዎን ያስገቡ:*\n_ለምሳሌ: አበበ ከበደ_`,
+    { parse_mode: 'Markdown', ...mainKb() }
+  );
+});
+
+
 bot.hears('📋 የምዝገባ ሁኔታ', async ctx => {
   ctx.session = {};
   const list = await Reg.find({ userId: ctx.from.id, status: { $nin: ['rejected'] } }).sort({ createdAt: -1 }).lean();
