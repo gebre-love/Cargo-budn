@@ -234,6 +234,50 @@ function capBox(total, target) {
   );
 }
 
+// ለፕሪንት የሚሆን HTML ዝርዝር (manifest) — admin ከፍቶ ከ browser/share menu "Print" ይጫናል
+function buildManifestHTML(ro, list) {
+  const total = list.reduce((s, r) => s + (r.weightKg || 0), 0);
+  const rows = list.map((r, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${r.fullName}</td>
+      <td>${r.phone}</td>
+      <td>${r.cargoDesc}</td>
+      <td>${r.weightKg}</td>
+      <td>${ST[r.status] || r.status}</td>
+      <td>${r.locationLat ? `<a href="https://maps.google.com/?q=${r.locationLat},${r.locationLng}">📍 ካርታ</a>` : '—'}</td>
+    </tr>`).join('');
+
+  return `<!DOCTYPE html>
+<html lang="am">
+<head>
+<meta charset="UTF-8">
+<title>${ro.label} — የጭነት ዝርዝር</title>
+<style>
+  body { font-family: 'Noto Sans Ethiopic', system-ui, sans-serif; padding: 20px; }
+  h1 { font-size: 18px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { border: 1px solid #333; padding: 6px 8px; font-size: 13px; text-align: left; }
+  th { background: #f0f0f0; }
+  .summary { margin-top: 14px; font-weight: bold; }
+  @media print { #printBtn { display: none; } }
+</style>
+</head>
+<body>
+  <h1>🚚 ${ro.label} — የጭነት ዝርዝር</h1>
+  <div>📅 ${new Date().toLocaleDateString('en-GB')}</div>
+  <table>
+    <thead>
+      <tr><th>#</th><th>ስም</th><th>ስልክ</th><th>ጭነት</th><th>ኪሎ</th><th>ሁኔታ</th><th>አድራሻ</th></tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="summary">ጠቅላላ: ${list.length} ሰው | ${total} ኪሎ</div>
+  <button id="printBtn" onclick="window.print()" style="margin-top:16px;padding:10px 20px;font-size:16px;">🖨️ ፕሪንት</button>
+</body>
+</html>`;
+}
+
 // ኢላማው ሲሞላ ለሁሉም ንቁ ተመዝጋቢዎች "ተዘጋጁ" ይልካል (በተደጋጋሚ እንዳይላክ flag ይጠቀማል)
 async function checkCapacity(routeId) {
   const ro = byRoute(routeId);
@@ -411,7 +455,30 @@ bot.hears('🔧 Admin', async ctx => {
     [Markup.button.callback('🚚 ጭነት ላክ',         'snd_pick')],
     [Markup.button.callback('📊 ሪፖርት',           'report')],
     [Markup.button.callback('📢 ቻናል ቁጥጥር',       'channel_panel')],
+    [Markup.button.callback('🖨️ ፕሪንት ዝርዝር',      'print_pick')],
   ]) });
+});
+
+// ── ፕሪንት ──────────────────────────────────────────────────
+bot.action('print_pick', async ctx => {
+  if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
+  ctx.answerCbQuery().catch(() => {});
+  await ctx.reply('🖨️ *የትኛው መስመር ዝርዝር ለፕሪንት?*', { parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard(ROUTES.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `print_${r.id}`)])) });
+});
+
+bot.action(/^print_([a-z_]+)$/, async ctx => {
+  if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
+  ctx.answerCbQuery().catch(() => {});
+  const ro = byRoute(ctx.match[1]);
+  if (!ro) return;
+  const list = await Reg.find({ routeId: ro.id, status: { $ne: 'rejected' } }).sort({ createdAt: 1 }).lean();
+  if (!list.length) return ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም።`);
+  const html = buildManifestHTML(ro, list);
+  await ctx.replyWithDocument(
+    { source: Buffer.from(html, 'utf-8'), filename: `${ro.id}_manifest.html` },
+    { caption: `🖨️ *${ro.label}*\n\nይህን ፋይል ይክፈቱ → ከውስጡ "🖨️ ፕሪንት" ቁልፍ ይጫኑ (ወይም Share → Print) → ከስልክዎ ጋር የተገናኘ printer ይምረጡ።`, parse_mode: 'Markdown' }
+  );
 });
 
 // ── ቻናል ቁጥጥር ──────────────────────────────────────────────
