@@ -124,7 +124,13 @@ function card(r, admin = false) {
 function capLine(total, target) {
   const pct    = Math.max(0, Math.min(100, Math.round((total/target)*100)));
   const filled = Math.round(pct/10);
-  return `${'█'.repeat(filled)}${'░'.repeat(10-filled)} ${pct}%\n${total}/${target} ኪሎ`;
+  const remain = Math.max(0, target - total);
+  return (
+    '█'.repeat(filled) + '░'.repeat(10-filled) + ' ' + pct + '%\n' +
+    'የተመዘገበ: ' + total + ' ኪሎ\n' +
+    'ቀሪ: ' + remain + ' ኪሎ\n' +
+    'ኢላማ: ' + target + ' ኪሎ'
+  );
 }
 
 function esc(t) { return String(t||'—').replace(/[_*[\]()~`>#+=|{}.!-]/g, c => '\\'+c); }
