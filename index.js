@@ -12,7 +12,7 @@ const ADMIN_IDS       = (process.env.ADMIN_IDS || '').split(',').map(s => Number
 const REG_PER_KG      = 10;  // የምዝገባ ክፍያ ለኪሎ (ብቻ ይከፈላል — ጭነት ሲሰበሰብ)
 const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY || '';
 const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
-const TARGET_KG_DEFAULT = Number(process.env.TARGET_KG_DEFAULT) || 3000; // የጭነት መኪና አቅም በኪሎ (ነባራዊ)
+const TARGET_KG_DEFAULT = Number(process.env.TARGET_KG_DEFAULT) || 5000; // የጭነት መኪና አቅም በኪሎ (ነባራዊ)
 const CHANNEL_ID      = (process.env.CHANNEL_ID || '').trim(); // ጭነት ሲሞላ ማስታወቅ የሚደረግበት ቻናል (ለምሳሌ @channelname ወይም -100...)
 
 if (!BOT_TOKEN || !MONGO_URI) { console.error('BOT_TOKEN እና MONGO_URI ያስፈልጋሉ'); process.exit(1); }
@@ -410,7 +410,54 @@ bot.hears('🔧 Admin', async ctx => {
     [Markup.button.callback('🗺️ ሰብሳቢ ዝርዝር',    'col_pick')],
     [Markup.button.callback('🚚 ጭነት ላክ',         'snd_pick')],
     [Markup.button.callback('📊 ሪፖርት',           'report')],
+    [Markup.button.callback('📢 ቻናል ቁጥጥር',       'channel_panel')],
   ]) });
+});
+
+// ── ቻናል ቁጥጥር ──────────────────────────────────────────────
+bot.action('channel_panel', async ctx => {
+  if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
+  ctx.answerCbQuery().catch(() => {});
+  const status = CHANNEL_ID ? `✅ ተያይዟል: \`${CHANNEL_ID}\`` : '❌ CHANNEL_ID አልተቀመጠም';
+  await ctx.reply(
+    `📢 *ቻናል ቁጥጥር*\n\n${status}`,
+    { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
+      [Markup.button.callback('🧪 ፍተሻ መልእክት ላክ', 'channel_test')],
+      ...ROUTES.map(r => [Markup.button.callback(`📣 ${r.emoji} ${r.label} አስታውቅ`, `channel_announce_${r.id}`)]),
+    ]) }
+  );
+});
+
+bot.action('channel_test', async ctx => {
+  if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
+  ctx.answerCbQuery().catch(() => {});
+  if (!CHANNEL_ID) return ctx.reply('❌ CHANNEL_ID አልተቀመጠም። በ Render Environment ላይ ይጨምሩት።');
+  try {
+    await bot.telegram.sendMessage(CHANNEL_ID, '🧪 ይህ የፍተሻ መልእክት ነው — ቦቱ ወደ ቻናሉ መልእክት መለጠፍ ይችላል። ✅');
+    await ctx.reply('✅ ተሳክቷል! ቦቱ ወደ ቻናሉ መልእክት ለጥፏል — ቻናሉ ላይ ይመልከቱ።');
+  } catch (e) {
+    await ctx.reply(`❌ አልተሳካም: ${e.message}\n\n⚠️ ቦቱ የቻናሉ admin መሆኑን እና CHANNEL_ID ትክክል መሆኑን ያረጋግጡ።`);
+  }
+});
+
+bot.action(/^channel_announce_([a-z_]+)$/, async ctx => {
+  if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
+  ctx.answerCbQuery().catch(() => {});
+  if (!CHANNEL_ID) return ctx.reply('❌ CHANNEL_ID አልተቀመጠም።');
+  const ro = byRoute(ctx.match[1]);
+  if (!ro) return;
+  const total = await routeWeight(ro.id);
+  const chTxt =
+    `📢 *${ro.label}*\n\n` +
+    '```\n' + capBox(total, ro.targetKg) + '\n```\n\n' +
+    `📦 የጋራ ጭነት አገልግሎት ይጠቀሙ — ርካሽ እና ፈጣን።\n` +
+    `❓ ${SUPPORT_PHONE}`;
+  try {
+    await bot.telegram.sendMessage(CHANNEL_ID, chTxt, { parse_mode: 'Markdown' });
+    await ctx.reply(`✅ ለ ${ro.label} ማስታወቂያ ወደ ቻናሉ ተልኳል።`);
+  } catch (e) {
+    await ctx.reply(`❌ አልተሳካም: ${e.message}`);
+  }
 });
 
 bot.action(/^lst_([a-z_]+)$/, async ctx => {
