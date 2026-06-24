@@ -16,39 +16,55 @@ const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
 if (!BOT_TOKEN || !MONGO_URI) { console.error('BOT_TOKEN እና MONGO_URI ያስፈልጋሉ'); process.exit(1); }
 const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
 
-// ══ መስመሮች ═══════════════════════════════════════════════
+// ══ መስመሮች — እያንዳንዱ መድረሻ ራሱ የጉዞ መስመር ═══════════════════
 const ROUTES = [
+  {
+    id: 'finotselam',
+    label: 'አዲስ አበባ → ፍኖተሰላም',
+    emoji: '🟢',
+    stops: [{ id: 'finotselam', label: 'ፍኖተሰላም' }],
+  },
+  {
+    id: 'debre_markos',
+    label: 'አዲስ አበባ → ደብረ ማርቆስ',
+    emoji: '🔵',
+    stops: [{ id: 'debre_markos', label: 'ደብረ ማርቆስ' }],
+  },
+  {
+    id: 'mota',
+    label: 'አዲስ አበባ → ሞጣ',
+    emoji: '🟤',
+    stops: [{ id: 'mota', label: 'ሞጣ' }],
+  },
   {
     id: 'bahirdar',
     label: 'አዲስ አበባ → ባህር ዳር',
     emoji: '🔵',
-    stops: [
-      { id: 'debre_markos', label: 'ደብረ ማርቆስ' },
-      { id: 'finotselam',   label: 'ፍኖተሰላም'   },
-      { id: 'mota',         label: 'ሞጣ'        },
-      { id: 'bahirdar',     label: 'ባህር ዳር'    },
-    ],
+    stops: [{ id: 'bahirdar', label: 'ባህር ዳር' }],
   },
   {
     id: 'gondar',
     label: 'አዲስ አበባ → ጎንደር',
     emoji: '🟣',
-    stops: [
-      { id: 'debre_markos', label: 'ደብረ ማርቆስ' },
-      { id: 'finotselam',   label: 'ፍኖተሰላም'   },
-      { id: 'bahirdar',     label: 'ባህር ዳር'    },
-      { id: 'gondar',       label: 'ጎንደር'      },
-    ],
+    stops: [{ id: 'gondar', label: 'ጎንደር' }],
+  },
+  {
+    id: 'debre_berhan',
+    label: 'አዲስ አበባ → ደብረ ብርሃን',
+    emoji: '🟡',
+    stops: [{ id: 'debre_berhan', label: 'ደብረ ብርሃን' }],
+  },
+  {
+    id: 'kemissie',
+    label: 'አዲስ አበባ → ከሚሴ',
+    emoji: '🟠',
+    stops: [{ id: 'kemissie', label: 'ከሚሴ' }],
   },
   {
     id: 'dessie',
     label: 'አዲስ አበባ → ደሴ',
-    emoji: '🟡',
-    stops: [
-      { id: 'debre_berhan', label: 'ደብረ ብርሃን' },
-      { id: 'kemissie',     label: 'ከሚሴ'       },
-      { id: 'dessie',       label: 'ደሴ'        },
-    ],
+    emoji: '🔴',
+    stops: [{ id: 'dessie', label: 'ደሴ' }],
   },
 ];
 
@@ -135,7 +151,6 @@ function card(r, admin = false) {
     `ስም: ${r.fullName}\n` +
     `ስልክ: ${r.phone}\n` +
     `መስመር: ${ro?.label}\n` +
-    `መድረሻ: *${stop?.label || '—'}*\n` +
     `ጭነት: ${r.cargoDesc} — ${r.weightKg} ኪሎ\n` +
     `ዋጋ: ${r.totalPrice} ብር\n` +
     `ክፍያ: ${me?.label || '—'}\n` +
@@ -146,7 +161,7 @@ function card(r, admin = false) {
   return t;
 }
 
-// ── Main keyboard — እያንዳንዱ መስመር የራሱ ቁልፍ ────────────────
+// ── Main keyboard ─────────────────────────────────────────
 const mainKb = () => Markup.keyboard([
   ...ROUTES.map(r => [`${r.emoji} ${r.label}`]),
   ['📋 የምዝገባ ሁኔታ'],
@@ -208,7 +223,7 @@ bot.start(async ctx => {
   );
 });
 
-// ══ እያንዳንዱ መስመር — ቀጥታ Stop ያሳያል ══════════════════════
+// ══ እያንዳንዱ መስመር — ወዲያውኑ ምዝገባ ይጀምራል ══════════════════
 ROUTES.forEach(route => {
   bot.hears(`${route.emoji} ${route.label}`, async ctx => {
 
@@ -226,30 +241,14 @@ ROUTES.forEach(route => {
       });
     }
 
-    // Stop ይምረጡ
-    ctx.session = { step: 'STOP', routeId: route.id, d: {} };
+    // ወዲያውኑ ምዝገባ ይጀምራል — stop selection አያስፈልግም
+    const stop = route.stops[0];
+    ctx.session = { step: 'NAME', routeId: route.id, d: { stopId: stop.id } };
     await ctx.reply(
-      `${route.emoji} *${route.label}*\n\nየሚወርዱበት ቦታ ይምረጡ:`,
-      { parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard(route.stops.map(s => [Markup.button.callback(`📍 ${s.label}`, `st_${s.id}`)]))
-      }
+      `${route.emoji} *${route.label}*\n\nሙሉ ስምዎን ያስገቡ:`,
+      { parse_mode: 'Markdown', ...mainKb() }
     );
   });
-});
-
-// Stop selected → ስም
-bot.action(/^st_(.+)$/, async ctx => {
-  ctx.answerCbQuery().catch(() => {});
-  if (ctx.session?.step !== 'STOP') return;
-  const ro   = byRoute(ctx.session.routeId);
-  const stop = byStop(ro, ctx.match[1]);
-  if (!stop) return;
-  ctx.session.d.stopId = stop.id;
-  ctx.session.step     = 'NAME';
-  await ctx.editMessageText(
-    `${ro?.emoji} *${ro?.label}* → 📍 *${stop.label}*\n\nሙሉ ስምዎን ያስገቡ:`,
-    { parse_mode: 'Markdown' }
-  );
 });
 
 // ══ Status ═══════════════════════════════════════════════
@@ -289,7 +288,7 @@ bot.hears('🔧 Admin', async ctx => {
 bot.action(/^lst_([a-z_]+)$/, async ctx => {
   if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
   ctx.answerCbQuery().catch(() => {});
-  const ro   = byRoute(ctx.match[1]);
+  const ro = byRoute(ctx.match[1]);
   if (!ro) return;
   const list = await Reg.find({ routeId: ro.id }).sort({ createdAt: -1 }).lean();
   if (!list.length) return ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም።`);
@@ -299,16 +298,11 @@ bot.action(/^lst_([a-z_]+)$/, async ctx => {
     `${ro.emoji} *${ro.label}*\nጠቅላላ:${list.length} ⏳${c.pending||0} 🔍${c.reviewing||0} ✅${c.approved||0} 🚚${c.sent||0}`,
     { parse_mode: 'Markdown' }
   );
-  for (const stop of ro.stops) {
-    const grp = list.filter(r => r.stopId === stop.id);
-    if (!grp.length) continue;
-    await ctx.reply(`📍 *${stop.label}* — ${grp.length} ሰው`, { parse_mode: 'Markdown' });
-    for (const r of grp) {
-      const kb = r.status === 'reviewing' ? okNoKb(r._id)
-        : r.status === 'approved' ? Markup.inlineKeyboard([[Markup.button.callback('❌ ሰርዝ', `no_${r._id}`)]])
-        : {};
-      await ctx.reply(card(r, true), { parse_mode: 'Markdown', ...kb });
-    }
+  for (const r of list) {
+    const kb = r.status === 'reviewing' ? okNoKb(r._id)
+      : r.status === 'approved' ? Markup.inlineKeyboard([[Markup.button.callback('❌ ሰርዝ', `no_${r._id}`)]])
+      : {};
+    await ctx.reply(card(r, true), { parse_mode: 'Markdown', ...kb });
   }
 });
 
@@ -374,13 +368,10 @@ bot.action(/^snd_([a-z_]+)$/, async ctx => {
   const ro    = byRoute(ctx.match[1]);
   const ready = await Reg.find({ routeId: ro?.id, status: 'approved' }).lean();
   if (!ready.length) return ctx.reply('⚠️ ፈቃድ ያለው ምዝገባ የለም።');
+  const total = ready.reduce((s, r) => s + (r.weightKg || 0), 0);
   let txt = `🚚 *${ro?.label}*\n\n`;
-  for (const stop of ro.stops) {
-    const grp = ready.filter(r => r.stopId === stop.id);
-    if (!grp.length) continue;
-    txt += `📍 ${stop.label}: ${grp.length} ሰው | ${grp.reduce((s,r)=>s+(r.weightKg||0),0)} ኪሎ\n`;
-  }
-  txt += `\nጠቅላላ: ${ready.length} ሰው\n\n📝 ማስታወሻ ያስገቡ:\n_ለምሳሌ: ሲኖትራክ — ሰኞ ጠዋት 6:00_`;
+  txt += `👥 ${ready.length} ሰው | ⚖️ ${total} ኪሎ\n\n`;
+  txt += `📝 ማስታወሻ ያስገቡ:\n_ለምሳሌ: ሲኖትራክ — ሰኞ ጠዋት 6:00_`;
   ctx.session = { step: 'SEND_NOTE', sendRoute: ro?.id };
   await ctx.reply(txt, { parse_mode: 'Markdown' });
 });
@@ -430,19 +421,15 @@ bot.on('location', async (ctx, next) => {
     const sorted = list
       .map(r => ({ ...r, d: r.locationLat ? km(lat, lng, r.locationLat, r.locationLng) : 9999 }))
       .sort((a, b) => a.d - b.d);
-    for (const stop of ro.stops) {
-      const grp = sorted.filter(r => r.stopId === stop.id);
-      if (!grp.length) continue;
-      await ctx.reply(`📍 *${stop.label}* — ${grp.length} ሰው | ${grp.reduce((s,r)=>s+(r.weightKg||0),0)} ኪሎ`, { parse_mode: 'Markdown' });
-      for (let i = 0; i < grp.length; i++) {
-        const r = grp[i];
-        await ctx.reply(
-          `${i+1}. *${r.fullName}* | 📞 ${r.phone} | ${r.weightKg}ኪሎ | ` +
-          (r.d < 9999 ? `📏 ${r.d.toFixed(1)}ኪሜ` : '📍 ቦታ አልተላከም'),
-          { parse_mode: 'Markdown' }
-        );
-        if (r.locationLat) await bot.telegram.sendLocation(ctx.chat.id, r.locationLat, r.locationLng);
-      }
+    await ctx.reply(`🗺️ *${ro?.label}*\n👥 ${sorted.length} ሰው`, { parse_mode: 'Markdown' });
+    for (let i = 0; i < sorted.length; i++) {
+      const r = sorted[i];
+      await ctx.reply(
+        `${i+1}. *${r.fullName}* | 📞 ${r.phone} | ${r.weightKg}ኪሎ | ` +
+        (r.d < 9999 ? `📏 ${r.d.toFixed(1)}ኪሜ` : '📍 ቦታ አልተላከም'),
+        { parse_mode: 'Markdown' }
+      );
+      if (r.locationLat) await bot.telegram.sendLocation(ctx.chat.id, r.locationLat, r.locationLng);
     }
     return;
   }
@@ -454,7 +441,7 @@ bot.on('location', async (ctx, next) => {
     if (!r) return ctx.reply('❗ ምዝገባ አልተገኘም።', mainKb());
     await ctx.reply('✅ ቦታዎ ተመዝግቧል!', mainKb());
     for (const aid of ADMIN_IDS) {
-      tell(aid, `📍 ቦታ ደርሷል — ${r.fullName} → ${byStop(byRoute(r.routeId), r.stopId)?.label}`);
+      tell(aid, `📍 ቦታ ደርሷል — ${r.fullName} → ${byRoute(r.routeId)?.label}`);
       bot.telegram.sendLocation(aid, lat, lng).catch(() => {});
     }
     return;
@@ -503,22 +490,28 @@ bot.on('text', async (ctx, next) => {
   if (!step) return next();
   const txt = ctx.message.text.trim();
 
-  if (step === 'STOP' || step === 'PAYMETHOD') return ctx.reply('👆 ከላይ ያለውን ቁልፍ ይምረጡ።');
+  // የ keyboard ቁልፎች ጋር conflict እንዳይኖር
+  if (ROUTES.some(r => txt === `${r.emoji} ${r.label}`) ||
+      txt === '📋 የምዝገባ ሁኔታ' || txt === '🔧 Admin' || txt === '⏭️ ቦታ ሳላጋራ ቀጥል') {
+    return next();
+  }
+
+  if (step === 'PAYMETHOD') return ctx.reply('👆 ከላይ ያለውን ቁልፍ ይምረጡ።');
 
   if (step === 'NAME') {
     ctx.session.d.name = txt;
     ctx.session.step   = 'PHONE';
-    return ctx.reply('ስልክ ቁጥር:');
+    return ctx.reply('📞 ስልክ ቁጥር:');
   }
   if (step === 'PHONE') {
     ctx.session.d.phone = txt;
     ctx.session.step    = 'CARGO';
-    return ctx.reply('ጭነት ዓይነት:\n_ለምሳሌ: ሲሚንቶ, ዱቄት_', { parse_mode: 'Markdown' });
+    return ctx.reply('📦 ጭነት ዓይነት:\n_ለምሳሌ: ሲሚንቶ, ዱቄት_', { parse_mode: 'Markdown' });
   }
   if (step === 'CARGO') {
     ctx.session.d.cargo = txt;
     ctx.session.step    = 'WEIGHT';
-    return ctx.reply('ክብደት (ኪሎ):\n_ለምሳሌ: 50_', { parse_mode: 'Markdown' });
+    return ctx.reply('⚖️ ክብደት (ኪሎ):\n_ለምሳሌ: 50_', { parse_mode: 'Markdown' });
   }
   if (step === 'WEIGHT') {
     const kg = parseFloat(txt.replace(/[^0-9.]/g, ''));
@@ -551,7 +544,7 @@ bot.on('text', async (ctx, next) => {
     for (const r of ready) {
       try {
         await bot.telegram.sendMessage(r.userId,
-          `🚚 *ጭነትዎ ተልኳል!*\n\n${byRoute(r.routeId)?.emoji} ${byRoute(r.routeId)?.label}\n📍 ${byStop(byRoute(r.routeId), r.stopId)?.label}\n\n📋 ${txt}\n\n❓ ${SUPPORT_PHONE}`,
+          `🚚 *ጭነትዎ ተልኳል!*\n\n${byRoute(r.routeId)?.emoji} ${byRoute(r.routeId)?.label}\n\n📋 ${txt}\n\n❓ ${SUPPORT_PHONE}`,
           { parse_mode: 'Markdown' }
         );
         sent++;
