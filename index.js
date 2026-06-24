@@ -16,7 +16,7 @@ const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
 if (!BOT_TOKEN || !MONGO_URI) { console.error('BOT_TOKEN እና MONGO_URI ያስፈልጋሉ'); process.exit(1); }
 const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
 
-// ══ መስመሮች — አማራ ክልል ብቻ ══════════════════════════════
+// ══ መስመሮች ═══════════════════════════════════════════════
 const ROUTES = [
   {
     id: 'bahirdar',
@@ -146,8 +146,9 @@ function card(r, admin = false) {
   return t;
 }
 
+// ── Main keyboard — እያንዳንዱ መስመር የራሱ ቁልፍ ────────────────
 const mainKb = () => Markup.keyboard([
-  ['📦 ጭነት መመዝገብ'],
+  ...ROUTES.map(r => [`${r.emoji} ${r.label}`]),
   ['📋 የምዝገባ ሁኔታ'],
   ...(ADMIN_IDS.length ? [['🔧 Admin']] : []),
 ]).resize();
@@ -202,56 +203,47 @@ bot.use(sessionMW);
 bot.start(async ctx => {
   ctx.session = {};
   await ctx.reply(
-    '🚚 *የጋራ ጭነት አገልግሎት — አማራ ክልል*\n\nጭነትዎን ከሌሎች ጋር በአንድ መኪና እናጓጉዛለን።\n💰 10 ብር / ኪሎ',
+    '🚚 *የጋራ ጭነት አገልግሎት — አማራ ክልል*\n\nጭነትዎን ከሌሎች ጋር በአንድ መኪና እናጓጉዛለን።\n💰 10 ብር / ኪሎ\n\n👇 መስመር ይምረጡ:',
     { parse_mode: 'Markdown', ...mainKb() }
   );
 });
 
-// ══ ጭነት መመዝገብ ═══════════════════════════════════════════
-bot.hears('📦 ጭነት መመዝገብ', async ctx => {
-  ctx.session = { step: 'ROUTE', d: {} };
-  await ctx.reply('መስመር ይምረጡ:', Markup.inlineKeyboard(
-    ROUTES.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `rt_${r.id}`)])
-  ));
+// ══ እያንዳንዱ መስመር — ቀጥታ Stop ያሳያል ══════════════════════
+ROUTES.forEach(route => {
+  bot.hears(`${route.emoji} ${route.label}`, async ctx => {
+
+    // ቀደም ሲል ምዝገባ?
+    const ex = await Reg.findOne({
+      userId: ctx.from.id, routeId: route.id, status: { $nin: ['rejected'] }
+    }).lean();
+
+    if (ex) {
+      const btns = [];
+      if (ex.status !== 'sent') btns.push(Markup.button.callback('🗑️ ሰርዝ', `del_${ex._id}`));
+      if (!ex.locationLat && ex.status !== 'sent') btns.push(Markup.button.callback('📍 ቦታ ላክ', `addloc_${ex._id}`));
+      return ctx.reply(card(ex) + '\n\n_ቀደም ሲል ተመዝግበዋል_', {
+        parse_mode: 'Markdown', ...(btns.length ? Markup.inlineKeyboard([btns]) : {}),
+      });
+    }
+
+    // Stop ይምረጡ
+    ctx.session = { step: 'STOP', routeId: route.id, d: {} };
+    await ctx.reply(
+      `${route.emoji} *${route.label}*\n\nየሚወርዱበት ቦታ ይምረጡ:`,
+      { parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(route.stops.map(s => [Markup.button.callback(`📍 ${s.label}`, `st_${s.id}`)]))
+      }
+    );
+  });
 });
 
-// Route → Stop (አንድ ላይ)
-bot.action(/^rt_(.+)$/, async ctx => {
-  ctx.answerCbQuery().catch(() => {});
-  if (ctx.session?.step !== 'ROUTE') return;
-  const ro = byRoute(ctx.match[1]);
-  if (!ro) return;
-
-  // ቀደም ሲል ምዝገባ?
-  const ex = await Reg.findOne({ userId: ctx.from.id, routeId: ro.id, status: { $nin: ['rejected'] } }).lean();
-  if (ex) {
-    const btns = [];
-    if (ex.status !== 'sent') btns.push(Markup.button.callback('🗑️ ሰርዝ', `del_${ex._id}`));
-    if (!ex.locationLat && ex.status !== 'sent') btns.push(Markup.button.callback('📍 ቦታ ላክ', `addloc_${ex._id}`));
-    await ctx.editMessageText(card(ex) + '\n\n_ቀደም ሲል ተመዝግበዋል_', {
-      parse_mode: 'Markdown', ...(btns.length ? Markup.inlineKeyboard([btns]) : {}),
-    });
-    return;
-  }
-
-  ctx.session.routeId = ro.id;
-  ctx.session.step    = 'STOP';
-  await ctx.editMessageText(
-    `${ro.emoji} *${ro.label}*\n\nየሚወርዱበት ቦታ ይምረጡ:`,
-    { parse_mode: 'Markdown', ...Markup.inlineKeyboard(
-      ro.stops.map(s => [Markup.button.callback(`📍 ${s.label}`, `st_${s.id}`)])
-    )}
-  );
-});
-
-// Stop → ስም
+// Stop selected → ስም
 bot.action(/^st_(.+)$/, async ctx => {
   ctx.answerCbQuery().catch(() => {});
   if (ctx.session?.step !== 'STOP') return;
   const ro   = byRoute(ctx.session.routeId);
   const stop = byStop(ro, ctx.match[1]);
   if (!stop) return;
-
   ctx.session.d.stopId = stop.id;
   ctx.session.step     = 'NAME';
   await ctx.editMessageText(
@@ -264,7 +256,7 @@ bot.action(/^st_(.+)$/, async ctx => {
 bot.hears('📋 የምዝገባ ሁኔታ', async ctx => {
   ctx.session = {};
   const list = await Reg.find({ userId: ctx.from.id, status: { $nin: ['rejected'] } }).lean();
-  if (!list.length) return ctx.reply('📭 ምዝገባ የለዎትም።', mainKb());
+  if (!list.length) return ctx.reply('📭 ምዝገባ የለዎትም። 👇 መስመር ይምረጡ።', mainKb());
   for (const r of list) {
     const btns = [];
     if (r.status !== 'sent') btns.push(Markup.button.callback('🗑️ ሰርዝ', `del_${r._id}`));
@@ -386,15 +378,13 @@ bot.action(/^snd_([a-z_]+)$/, async ctx => {
   for (const stop of ro.stops) {
     const grp = ready.filter(r => r.stopId === stop.id);
     if (!grp.length) continue;
-    const kg = grp.reduce((s, r) => s + (r.weightKg || 0), 0);
-    txt += `📍 ${stop.label}: ${grp.length} ሰው | ${kg} ኪሎ\n`;
+    txt += `📍 ${stop.label}: ${grp.length} ሰው | ${grp.reduce((s,r)=>s+(r.weightKg||0),0)} ኪሎ\n`;
   }
   txt += `\nጠቅላላ: ${ready.length} ሰው\n\n📝 ማስታወሻ ያስገቡ:\n_ለምሳሌ: ሲኖትራክ — ሰኞ ጠዋት 6:00_`;
   ctx.session = { step: 'SEND_NOTE', sendRoute: ro?.id };
   await ctx.reply(txt, { parse_mode: 'Markdown' });
 });
 
-// ── ሪፖርት ─────────────────────────────────────────────────
 bot.action('report', async ctx => {
   if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
   ctx.answerCbQuery().catch(() => {});
@@ -407,7 +397,6 @@ bot.action('report', async ctx => {
   await ctx.reply(txt, { parse_mode: 'Markdown' });
 });
 
-// ── ሰብሳቢ ─────────────────────────────────────────────────
 bot.action('col_pick', async ctx => {
   if (!isAdmin(ctx)) return ctx.answerCbQuery('⛔').catch(() => {});
   ctx.answerCbQuery().catch(() => {});
@@ -444,8 +433,7 @@ bot.on('location', async (ctx, next) => {
     for (const stop of ro.stops) {
       const grp = sorted.filter(r => r.stopId === stop.id);
       if (!grp.length) continue;
-      const kg = grp.reduce((s, r) => s + (r.weightKg||0), 0);
-      await ctx.reply(`📍 *${stop.label}* — ${grp.length} ሰው | ${kg} ኪሎ`, { parse_mode: 'Markdown' });
+      await ctx.reply(`📍 *${stop.label}* — ${grp.length} ሰው | ${grp.reduce((s,r)=>s+(r.weightKg||0),0)} ኪሎ`, { parse_mode: 'Markdown' });
       for (let i = 0; i < grp.length; i++) {
         const r = grp[i];
         await ctx.reply(
@@ -476,7 +464,7 @@ bot.on('location', async (ctx, next) => {
 });
 
 bot.hears('⏭️ ቦታ ሳላጋራ ቀጥል', async ctx => {
-  if (ctx.session?.step !== 'LOC') return ctx.reply('ምዝገባ ይጀምሩ።', mainKb());
+  if (ctx.session?.step !== 'LOC') return ctx.reply('👇 መስመር ይምረጡ።', mainKb());
   const regId = ctx.session.locRegId;
   ctx.session = {};
   await ctx.reply('✅ ምዝገባ ተጠናቋል!\n\nቦታ ኋላ ለማጨምር "📋 የምዝገባ ሁኔታ" → 📍 ቦታ ላክ ይጫኑ።', mainKb());
@@ -515,9 +503,7 @@ bot.on('text', async (ctx, next) => {
   if (!step) return next();
   const txt = ctx.message.text.trim();
 
-  if (step === 'ROUTE' || step === 'STOP' || step === 'PAYMETHOD') {
-    return ctx.reply('👆 ከላይ ያለውን ቁልፍ ይምረጡ።');
-  }
+  if (step === 'STOP' || step === 'PAYMETHOD') return ctx.reply('👆 ከላይ ያለውን ቁልፍ ይምረጡ።');
 
   if (step === 'NAME') {
     ctx.session.d.name = txt;
@@ -547,13 +533,11 @@ bot.on('text', async (ctx, next) => {
       }
     );
   }
-
   if (step === 'LOC') {
     ctx.session.locTries = (ctx.session.locTries || 0) + 1;
     if (ctx.session.locTries >= 3) return ctx.reply(`ለእርዳታ: ${SUPPORT_PHONE}\nወይም 👇 ⏭️ ቀጥል ይጫኑ።`, locKb());
     return ctx.reply('📍 ጽሁፍ ሳይሆን 👇 ቁልፉን ይጫኑ።', locKb());
   }
-
   if (step === 'SEND_NOTE') {
     if (!isAdmin(ctx)) { ctx.session = {}; return next(); }
     const ro    = byRoute(ctx.session.sendRoute);
@@ -575,14 +559,13 @@ bot.on('text', async (ctx, next) => {
     }
     return ctx.reply(`✅ ተልኳል — ${ready.length} ሰው (${sent} ተሳክቷል)`, mainKb());
   }
-
   return next();
 });
 
 // ══ PHOTO ════════════════════════════════════════════════
 bot.on('photo', async ctx => {
   const r = await Reg.findOne({ userId: ctx.from.id, status: 'pending' }).sort({ createdAt: -1 });
-  if (!r) return ctx.reply('⚠️ ምዝገባ አልተገኘም። 📦 ጭነት መመዝገብ ይጫኑ።', mainKb());
+  if (!r) return ctx.reply('⚠️ ምዝገባ አልተገኘም። 👇 መስመር ይምረጡ።', mainKb());
   const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
   r.paymentFileId = fileId;
   r.status = 'reviewing';
