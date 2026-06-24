@@ -9,9 +9,7 @@ const BOT_TOKEN       = (process.env.BOT_TOKEN || '').trim();
 const MONGO_URI       = process.env.MONGO_URI  || '';
 const SUPPORT_PHONE   = process.env.SUPPORT_PHONE || '0960336138';
 const ADMIN_IDS       = (process.env.ADMIN_IDS || '').split(',').map(s => Number(s.trim())).filter(Boolean);
-const REG_PER_KG      = 10;  // የምዝገባ ክፍያ ለኪሎ
-const CARGO_PER_KG    = 25;  // የጭነት ክፍያ ለኪሎ
-const TOTAL_PER_KG    = REG_PER_KG + CARGO_PER_KG; // 35 ብር / ኪሎ
+const REG_PER_KG      = 10;  // የምዝገባ ክፍያ ለኪሎ (ብቻ ይከፈላል — ጭነት ሲሰበሰብ)
 const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY || '';
 const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || 'true') === 'true';
 
@@ -153,9 +151,8 @@ function card(r, admin = false) {
     `📞 ስልክ: ${r.phone}\n` +
     `🚛 መስመር: ${ro?.label}\n` +
     `📦 ጭነት: ${r.cargoDesc} — ${r.weightKg} ኪሎ\n` +
-    `💰 የምዝገባ ክፍያ: ${r.weightKg * REG_PER_KG} ብር (${REG_PER_KG}ብር × ${r.weightKg}ኪሎ)\n` +
-    `💰 የጭነት ክፍያ: ${r.weightKg * CARGO_PER_KG} ብር (${CARGO_PER_KG}ብር × ${r.weightKg}ኪሎ)\n` +
-    `💵 ጠቅላላ: ${r.totalPrice} ብር\n` +
+    `💰 የምዝገባ ክፍያ: ${r.totalPrice} ብር (${REG_PER_KG}ብር × ${r.weightKg}ኪሎ)\n` +
+    `💰 የጭነት ክፍያ: ${r.weightKg * 25} ብር — _ሲሰበሰብ ይከፈላል_\n` +
     `💳 ክፍያ: ${me?.label || '—'}\n` +
     `📍 ቦታ: ${r.locationLat ? `[Maps](https://maps.google.com/?q=${r.locationLat},${r.locationLng})` : 'አልተላከም'}\n` +
     `📊 ሁኔታ: ${ST[r.status]}`;
@@ -227,9 +224,8 @@ bot.start(async ctx => {
     '📦 *የጋራ ጭነት አገልግሎት*\n' +
     '_አማራ ክልል — ፈጣን እና ርካሽ_\n\n' +
     '✨ *ጥቅሞቻችን:*\n' +
-    '💰 የምዝገባ ክፍያ — *10 ብር / ኪሎ*\n' +
-    '📦 የጭነት ክፍያ — *25 ብር / ኪሎ*\n' +
-    '💵 ጠቅላላ — *35 ብር / ኪሎ*\n' +
+    '💰 የምዝገባ ክፍያ — *10 ብር / ኪሎ* (አሁን ይከፈላል)\n' +
+    '🚛 የጭነት ክፍያ — *25 ብር / ኪሎ* (ሲሰበሰብ ይከፈላል)\n' +
     '🏠 ቤትዎ ድረስ እንሰበስባለን\n' +
     '🤝 ከሌሎች ጋር በአንድ መኪና\n' +
     '⚡ ፈጣን እና ደህንነቱ የተጠበቀ\n\n' +
@@ -537,7 +533,7 @@ bot.on('text', async (ctx, next) => {
     ctx.session.step    = 'CARGO';
     // ── ምሳሌ ለውጥ — ሲሚንቶ ተወግዶ ልብስ/እቃ ሆነ ──
     return ctx.reply(
-      '📦 *ጭነት ዓይነት ያስገቡ:*\n_ለምሳሌ: ልብስ, እቃ, ምግብ_',
+      '📦 *ጭነት ዓይነት ያስገቡ:*\n_ለምሳሌ: ልብስ, እቃ_',
       { parse_mode: 'Markdown' }
     );
   }
@@ -550,14 +546,13 @@ bot.on('text', async (ctx, next) => {
     const kg = parseFloat(txt.replace(/[^0-9.]/g, ''));
     if (!kg || kg <= 0) return ctx.reply('⚠️ እባክዎ ቁጥር ያስገቡ\n_ለምሳሌ: 50_', { parse_mode: 'Markdown' });
     ctx.session.d.kg    = kg;
-    ctx.session.d.price = kg * TOTAL_PER_KG;
+    ctx.session.d.price = kg * REG_PER_KG; // ምዝገባ ክፍያ ብቻ
     ctx.session.step    = 'PAYMETHOD';
     return ctx.reply(
-      `📊 *የዋጋ ዝርዝር:*\n\n` +
-      `📝 የምዝገባ ክፍያ: *${kg * REG_PER_KG} ብር* (${REG_PER_KG}ብር × ${kg}ኪሎ)\n` +
-      `📦 የጭነት ክፍያ: *${kg * CARGO_PER_KG} ብር* (${CARGO_PER_KG}ብር × ${kg}ኪሎ)\n` +
+      `📊 *የምዝገባ ክፍያ:*\n\n` +
+      `📝 ${kg} ኪሎ × ${REG_PER_KG} ብር = *${kg * REG_PER_KG} ብር*\n` +
       `━━━━━━━━━━━━━━\n` +
-      `💵 ጠቅላላ: *${kg * TOTAL_PER_KG} ብር* (${TOTAL_PER_KG}ብር × ${kg}ኪሎ)\n\n` +
+      `ℹ️ _የጭነት ክፍያ (${25}ብር/ኪሎ) ሲሰበሰብ ይከፈላል_\n\n` +
       `💳 *ክፍያ መንገድ ይምረጡ:*`,
       {
         parse_mode: 'Markdown',
