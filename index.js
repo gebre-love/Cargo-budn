@@ -197,9 +197,8 @@ function capLine(total, target) {
 }
 
 const mainKb = () => Markup.keyboard([
-  ['🔼 ወደ አማራ ክልል', '🔽 ወደ አዲስ አበባ'],
+  ['🔼 አዲስ አበባ → አማራ ክልል', '🔽 አማራ ክልል → አዲስ አበባ'],
   ['📋 ምዝገባዬ', '📊 ቆጣሪ'],
-  ['📖 መመሪያ'],
   ...(ADMIN_IDS.length ? [['🔧 Admin']] : []),
 ]).resize();
 
@@ -309,85 +308,204 @@ const aiSummary = r => !r
   : `🤖 ${aiOk(r) ? '✅' : r?.looks_edited ? '⚠️' : '❌'} (${r.confidence}) ${r.reason || ''}`;
 
 /* ────────────────────────────────────────────────────────────
-   9. RETRY HELPER — for network-sensitive Telegram API calls
+   10. PRINTABLE MANIFEST (HTML) — official roadside document
+   Sent as a downloadable HTML file the driver/clerk can open in
+   any browser and print — formatted for handing to police at
+   checkpoints (route, date, signed passenger/cargo list).
    ──────────────────────────────────────────────────────────── */
 
-async function withRetry(fn, retries = 3, delayMs = 3000) {
+const PRINT_STATUS = {
+  approved:  'ፈቃድ ያለው',
+  reviewing: 'እየተፈተሸ',
+  pending:   'ያልከፈለ',
+  sent:      'ተልኳል',
+};
+
+function buildManifestHTML(ro, list) {
+  const totalKg   = list.reduce((s, r) => s + (r.weightKg || 0), 0);
+  const totalReg  = totalKg * REG_PER_KG;
+  const totalShip = totalKg * SHIP_PER_KG;
+
+  const cnt = { approved: 0, reviewing: 0, pending: 0, sent: 0 };
+  list.forEach(r => { if (cnt[r.status] !== undefined) cnt[r.status]++; });
+
+  const now      = new Date();
+  const dateStr  = now.toLocaleDateString('en-GB');
+  const timeStr  = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+  const ORDER  = ['approved', 'sent', 'reviewing', 'pending'];
+  const sorted = [...list].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status));
+
+  const rows = sorted.map((r, i) => {
+    const statusAm = PRINT_STATUS[r.status] || r.status;
+    return `<tr>
+      <td>${i + 1}</td>
+      <td>${r.fullName || '—'}</td>
+      <td>${r.phone || '—'}</td>
+      <td>${r.cargoDesc || '—'}</td>
+      <td class="num">${r.weightKg || 0}</td>
+      <td class="status status-${r.status}">${statusAm}</td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="am">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${ro.label} — የጭነት ዝርዝር</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Noto Sans Ethiopic', 'Nyala', 'Segoe UI', Arial, sans-serif; color: #1a1a1a; margin: 0; padding: 18px; font-size: 13px; }
+  .letterhead { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1a3c6e; padding-bottom: 10px; margin-bottom: 14px; }
+  .letterhead h1 { font-size: 18px; margin: 0 0 4px; color: #1a3c6e; }
+  .letterhead .sub { font-size: 12px; color: #555; }
+  .letterhead .meta { text-align: right; font-size: 12px; color: #333; }
+  .route-banner { background: #1a3c6e; color: #fff; padding: 8px 14px; border-radius: 4px; font-size: 15px; font-weight: bold; margin-bottom: 14px; }
+  .summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .box { border: 1px solid #ccc; border-radius: 5px; padding: 7px 13px; text-align: center; background: #f7f8fa; min-width: 95px; }
+  .box .v { font-size: 18px; font-weight: bold; color: #1a3c6e; }
+  .box .l { font-size: 10px; color: #666; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 18px; }
+  th { background: #1a3c6e; color: #fff; padding: 7px 6px; text-align: left; font-size: 11.5px; }
+  td { padding: 6px 6px; border-bottom: 1px solid #ddd; }
+  tr:nth-child(even) { background: #f5f6f8; }
+  .num { text-align: center; }
+  .status { text-align: center; font-weight: bold; font-size: 11px; }
+  .status-approved { color: #1a7d3b; }
+  .status-sent     { color: #1565c0; }
+  .status-reviewing{ color: #b8860b; }
+  .status-pending   { color: #888; }
+  .footer { margin-top: 30px; display: flex; justify-content: space-between; font-size: 12px; }
+  .sign-box { width: 45%; }
+  .sign-line { border-top: 1px solid #333; margin-top: 36px; padding-top: 4px; text-align: center; color: #444; }
+  .stamp-note { margin-top: 26px; font-size: 11px; color: #777; text-align: center; }
+  #printBtn { margin: 16px 0; padding: 10px 28px; font-size: 14px; background: #1a3c6e; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+  @media print {
+    #printBtn { display: none; }
+    body { padding: 0; }
+  }
+</style>
+</head>
+<body>
+
+<button id="printBtn" onclick="window.print()">🖨️ ይህን ፕሪንት ያድርጉ</button>
+
+<div class="letterhead">
+  <div>
+    <h1>🚛 የጋራ ጭነት አገልግሎት</h1>
+    <div class="sub">Cargo Group-Booking Manifest</div>
+  </div>
+  <div class="meta">
+    📅 ${dateStr} &nbsp; ⏰ ${timeStr}<br>
+    ☎️ ${SUPPORT_PHONE}
+  </div>
+</div>
+
+<div class="route-banner">${ro.emoji} ${ro.label}</div>
+
+<div class="summary">
+  <div class="box"><div class="v">${list.length}</div><div class="l">ጠቅላላ ተሳፋሪ/ጭነት</div></div>
+  <div class="box"><div class="v">${totalKg}</div><div class="l">ጠቅላላ ኪሎ</div></div>
+  <div class="box"><div class="v">${cnt.approved + cnt.sent}</div><div class="l">✅ ፈቃድ ያላቸው</div></div>
+  <div class="box"><div class="v">${cnt.pending + cnt.reviewing}</div><div class="l">⏳ በሂደት ላይ</div></div>
+  <div class="box"><div class="v">${totalReg.toLocaleString('en')}</div><div class="l">የምዝገባ ክፍያ (ብር)</div></div>
+  <div class="box"><div class="v">${totalShip.toLocaleString('en')}</div><div class="l">የጭነት ክፍያ (ብር)</div></div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>ሙሉ ስም</th>
+      <th>ስልክ ቁጥር</th>
+      <th>የጭነት ዓይነት</th>
+      <th class="num">ኪሎ</th>
+      <th class="status">ሁኔታ</th>
+    </tr>
+  </thead>
+  <tbody>
+${rows}
+  </tbody>
+</table>
+
+<div class="footer">
+  <div class="sign-box">
+    <div class="sign-line">የሹፍር ስም እና ፊርማ — Driver Name &amp; Signature</div>
+  </div>
+  <div class="sign-box">
+    <div class="sign-line">የተረከበ ባለሥልጣን ፊርማ — Receiving Officer Signature</div>
+  </div>
+</div>
+
+<div class="stamp-note">ይህ ሰነድ በ${ro.label} የጭነት ጉዞ ላይ ላሉ ኬላዎች/ፖሊስ ማሳያ ሰነድ ነው።</div>
+
+<script>
+  // Auto-open the print dialog once the page has finished loading,
+  // so the driver only needs to tap "save" / "print" once.
+  window.addEventListener('load', () => setTimeout(() => window.print(), 400));
+</script>
+</body>
+</html>`;
+}
+
+/* Retry helper tuned for the document upload, which is more prone
+   to "socket hang up" on Render's free tier (cold start / flaky network) */
+async function sendDocumentWithRetry(chatId, doc, extra, retries = 4) {
   let lastErr;
   for (let i = 0; i < retries; i++) {
     try {
-      return await fn();
+      return await bot.telegram.sendDocument(chatId, doc, extra);
     } catch (e) {
       lastErr = e;
-      if (i < retries - 1) await new Promise(r => setTimeout(r, delayMs));
+      console.error(`sendDocument attempt ${i + 1}/${retries} failed:`, e.message);
+      if (i < retries - 1) await new Promise(r => setTimeout(r, 2500 * (i + 1)));
     }
   }
   throw lastErr;
 }
 
-/* ────────────────────────────────────────────────────────────
-   10. PRINTABLE MANIFEST (TEXT) — per-route passenger/cargo list
-   Sent as plain chat messages (no file upload) to avoid
-   network failures like "socket hang up" on slow connections.
-   ──────────────────────────────────────────────────────────── */
-
-const PRINT_STATUS_ORDER  = ['approved', 'reviewing', 'pending', 'sent'];
-const PRINT_STATUS_HEADER = {
-  approved:  '✅ ፈቃድ ያላቸው',
-  reviewing: '🔍 እየተፈተሸ ያለ',
-  pending:   '⏳ ክፍያ ያልከፈሉ',
-  sent:      '🚚 ጭነት የተላከ',
-};
-
 async function handlePrint(ctx, routeId) {
   const ro = byRoute(routeId);
   if (!ro) { await ctx.reply('መስመር አልተገኘም'); return; }
 
+  let waitMsg;
   try {
+    waitMsg = await ctx.reply('⏳ ሰነዱ እየተዘጋጀ ነው፣ ትንሽ ይጠብቁ...');
+
     const list = await Reg.find({ routeId, status: { $ne: 'rejected' } }).sort({ createdAt: 1 }).lean();
-    if (!list.length) return ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም`);
+    if (!list.length) {
+      await ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም`);
+      return;
+    }
 
-    const totalKg   = list.reduce((s, r) => s + (r.weightKg || 0), 0);
-    const totalReg  = totalKg * REG_PER_KG;
-    const totalShip = totalKg * SHIP_PER_KG;
-    const cnt = { approved: 0, reviewing: 0, pending: 0, sent: 0 };
-    list.forEach(r => { if (cnt[r.status] !== undefined) cnt[r.status]++; });
-    const date = new Date().toLocaleDateString('en-GB');
+    const totalKg = list.reduce((s, r) => s + (r.weightKg || 0), 0);
+    const html    = buildManifestHTML(ro, list);
+    const buf     = Buffer.from(html, 'utf-8');
+    const fname   = `${ro.id}_${new Date().toISOString().slice(0, 10)}.html`;
 
-    await ctx.reply(
-      `🖨️ *ፕሪንት ዝርዝር*\n` +
-      `${ro.emoji} *${ro.label}*\n` +
-      `📅 ${date}\n` +
-      `━━━━━━━━━━━━━━━━\n` +
-      `👥 ጠቅላላ ሰው: *${list.length}*\n` +
-      `⚖️ ጠቅላላ ኪሎ: *${totalKg}*\n` +
-      `✅${cnt.approved} 🔍${cnt.reviewing} ⏳${cnt.pending} 🚚${cnt.sent}\n` +
-      `💵 ምዝ: ${totalReg.toLocaleString('en')}ብ | 🚛 ጭ: ${totalShip.toLocaleString('en')}ብ`,
-      { parse_mode: 'Markdown' }
+    await sendDocumentWithRetry(
+      ctx.chat.id,
+      { source: buf, filename: fname },
+      {
+        caption:
+          `🖨️ *${ro.label}* — ፕሪንት ዝግጁ ሰነድ\n` +
+          `👥 ${list.length} | ⚖️ ${totalKg}ኪሎ\n\n` +
+          `📄 ፋይሉን ይክፈቱ → በራስ-ሰር ፕሪንት ይከፈታል\n` +
+          `(ካልተከፈተ Chrome ይክፈቱና 🖨️ ቁልፉን ይጫኑ)\n\n` +
+          `ይህን ሰነድ ለፖሊስ/ኬላ ማሳያ ይጠቀሙ።`,
+        parse_mode: 'Markdown',
+      }
     );
 
-    let idx = 1;
-    for (const statusKey of PRINT_STATUS_ORDER) {
-      const members = list.filter(r => r.status === statusKey);
-      if (!members.length) continue;
-
-      for (let i = 0; i < members.length; i += 12) {
-        const batch = members.slice(i, i + 12);
-        let rows = i === 0 ? `${PRINT_STATUS_HEADER[statusKey]} (${members.length})\n─────────────\n` : '';
-        for (const r of batch) {
-          const mapLink = r.locationLat
-            ? `[ካርታ](https://maps.google.com/?q=${r.locationLat},${r.locationLng})`
-            : '—';
-          rows +=
-            `*${idx++}.* ${r.fullName} | 📞${r.phone}\n` +
-            `📦${r.cargoDesc} ${r.weightKg}ኪ | ${mapLink}\n\n`;
-        }
-        await ctx.reply(rows.trim(), { parse_mode: 'Markdown', link_preview_options: { is_disabled: true } });
-      }
-    }
+    if (waitMsg) bot.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   } catch (e) {
     console.error('handlePrint error:', e.message);
-    await ctx.reply(`❌ ስህተት: ${e.message}\n\nትንሽ ቆይተው እንደገና ይሞክሩ`).catch(() => {});
+    await ctx.reply(
+      `❌ ፋይሉን መላክ አልተሳካም (${e.message})\n\n` +
+      `ኢንተርኔት ላይ ችግር ሊሆን ይችላል — ትንሽ ቆይተው "🖨️ ፕሪንት" ብለው እንደገና ይሞክሩ።`
+    ).catch(() => {});
   }
 }
 
@@ -461,11 +579,8 @@ bot.catch((err, ctx) => console.error('Bot error:', err?.message, ctx?.updateTyp
    13. /start — WELCOME
    ──────────────────────────────────────────────────────────── */
 
-bot.start(async ctx => {
-  ctx.session = {};
-  const name = ctx.from?.first_name || 'እንኳን ደህና መጡ';
-
-  await ctx.reply(
+function welcomeText(name) {
+  return (
     `🚛 *እንኳን ደህና መጡ, ${name}!*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n\n` +
     `📦 *የጋራ ጭነት አገልግሎት*\n` +
@@ -475,48 +590,36 @@ bot.start(async ctx => {
     `• 💰 ርካሽ ዋጋ — ከሌሎች ጋር አካፍለን\n` +
     `• ⚡ ፈጣን እና አስተማማኝ አገልግሎት\n` +
     `• 📲 ሁሉም ነገር በቦት ይከናወናል\n\n` +
+    `📖 *እንዴት ይሰራል?*\n` +
+    `1️⃣ 🔼 አዲስ አበባ → አማራ ክልል ወይም 🔽 አማራ ክልል → አዲስ አበባ ይምረጡ → ከተማ ይምረጡ\n` +
+    `2️⃣ ስም → ስልክ → ጭነት ዓይነት → ክብደት (ኪሎ) ያስገቡ\n` +
+    `3️⃣ ቴሌብር ወይም CBE ይምረጡ → ይክፈሉ → ደረሰኝ ፎቶ ይላኩ\n` +
+    `4️⃣ 📍 አድራሻዎን ያጋሩ — ቤትዎ ድረስ እንሰበስባለን\n\n` +
     `💵 *ዋጋ:*\n` +
     `• የምዝገባ ክፍያ: *${REG_PER_KG} ብር/ኪሎ* (አሁን)\n` +
     `• የጭነት ክፍያ: *${SHIP_PER_KG} ብር/ኪሎ* (ሲሰበሰብ)\n\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `📖 እንዴት ይሰራል? "📖 መመሪያ" ይጫኑ ወይም /help ይጻፉ\n\n` +
-    `👇 *አቅጣጫ ይምረጡ:*`,
-    { parse_mode: 'Markdown', ...mainKb() }
-  );
-});
-
-/* ────────────────────────────────────────────────────────────
-   13b. /help — USAGE GUIDE
-   ──────────────────────────────────────────────────────────── */
-
-function helpText() {
-  return (
-    `📖 *የቦት አጠቃቀም መመሪያ*\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n\n` +
-    `1️⃣ *መስመር ይምረጡ*\n` +
-    `   🔼 ወደ አማራ ክልል ወይም 🔽 ወደ አዲስ አበባ → ከዚያ ትክክለኛ ከተማ ይምረጡ\n\n` +
-    `2️⃣ *መረጃ ይሙሉ*\n` +
-    `   ስም → ስልክ → ጭነት ዓይነት → ክብደት (ኪሎ)\n\n` +
-    `3️⃣ *ክፍያ ይፈጽሙ*\n` +
-    `   ቴሌብር ወይም CBE ይምረጡ → ይክፈሉ → ደረሰኝ ፎቶ ይላኩ\n\n` +
-    `4️⃣ *አድራሻ ያጋሩ*\n` +
-    `   📍 ቁልፉን ይጫኑ — ሠራተኞቻችን ቤትዎ ድረስ ይሰበስቡዎታል\n\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `📋 *ምዝገባዬ* — የእርስዎን ምዝገባዎች ለማየት/ለመሰረዝ\n` +
+    `📋 *ምዝገባዬ* — ምዝገባዎችዎን ለማየት/ለመሰረዝ\n` +
     `📊 *ቆጣሪ* — እያንዳንዱ መስመር ስንት ኪሎ እንደሞላ ለማየት\n\n` +
-    `💵 *ዋጋ:* ${REG_PER_KG} ብር/ኪ (ምዝገባ) + ${SHIP_PER_KG} ብር/ኪ (ጭነት ሲሰበሰብ)\n\n` +
-    `❓ ለጥያቄ: ${SUPPORT_PHONE}`
+    `❓ ለጥያቄ: ${SUPPORT_PHONE}\n\n` +
+    `👇 *አቅጣጫ ይምረጡ:*`
   );
 }
 
-bot.command('help', async ctx => {
+bot.start(async ctx => {
   ctx.session = {};
-  await ctx.reply(helpText(), { parse_mode: 'Markdown', ...mainKb() });
+  const name = ctx.from?.first_name || 'እንኳን ደህና መጡ';
+  await ctx.reply(welcomeText(name), { parse_mode: 'Markdown', ...mainKb() });
 });
 
-bot.hears('📖 መመሪያ', async ctx => {
+/* ────────────────────────────────────────────────────────────
+   13b. /help — re-shows the same welcome/usage guide
+   ──────────────────────────────────────────────────────────── */
+
+bot.command('help', async ctx => {
   ctx.session = {};
-  await ctx.reply(helpText(), { parse_mode: 'Markdown', ...mainKb() });
+  const name = ctx.from?.first_name || 'እንኳን ደህና መጡ';
+  await ctx.reply(welcomeText(name), { parse_mode: 'Markdown', ...mainKb() });
 });
 /* ────────────────────────────────────────────────────────────
    14. ቆጣሪ / ምዝገባዬ (status & "my registrations" views)
@@ -526,12 +629,12 @@ bot.hears('📊 ቆጣሪ', async ctx => {
   ctx.session = {};
 
   let txt = '📊 *የጭነት ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n';
-  txt += '🔼 *ወደ አማራ ክልል*\n\n';
+  txt += '🔼 *አዲስ አበባ → አማራ ክልል*\n\n';
   for (const ro of ROUTES_TO_AMHARA) {
     const total = await routeWeight(ro.id);
     txt += `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n\n`;
   }
-  txt += '🔽 *ወደ አዲስ አበባ*\n\n';
+  txt += '🔽 *አማራ ክልል → አዲስ አበባ*\n\n';
   for (const ro of ROUTES_TO_AA) {
     const total = await routeWeight(ro.id);
     txt += `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n\n`;
@@ -577,14 +680,14 @@ async function startRegistration(ctx, route) {
   await ctx.reply(`${route.emoji} *${route.label}*\n\n👤 ሙሉ ስምዎን ያስገቡ:`, { parse_mode: 'Markdown', ...mainKb() });
 }
 
-bot.hears('🔼 ወደ አማራ ክልል', async ctx => {
+bot.hears('🔼 አዲስ አበባ → አማራ ክልል', async ctx => {
   ctx.session = {};
-  await ctx.reply('🔼 *ወደ አማራ ክልል* — መስመር ይምረጡ:', { parse_mode: 'Markdown', ...dirRoutesKb(ROUTES_TO_AMHARA) });
+  await ctx.reply('🔼 *አዲስ አበባ → አማራ ክልል* — መስመር ይምረጡ:', { parse_mode: 'Markdown', ...dirRoutesKb(ROUTES_TO_AMHARA) });
 });
 
-bot.hears('🔽 ወደ አዲስ አበባ', async ctx => {
+bot.hears('🔽 አማራ ክልል → አዲስ አበባ', async ctx => {
   ctx.session = {};
-  await ctx.reply('🔽 *ወደ አዲስ አበባ* — መስመር ይምረጡ:', { parse_mode: 'Markdown', ...dirRoutesKb(ROUTES_TO_AA) });
+  await ctx.reply('🔽 *አማራ ክልል → አዲስ አበባ* — መስመር ይምረጡ:', { parse_mode: 'Markdown', ...dirRoutesKb(ROUTES_TO_AA) });
 });
 
 bot.action(/^goto_(.+)$/, async ctx => {
@@ -647,7 +750,7 @@ bot.on('text', async (ctx, next) => {
   const txt = ctx.message.text.trim();
   const reserved = [
     '📋 ምዝገባዬ', '📊 ቆጣሪ', '🔧 Admin', '⏭️ ሳላጋራ ጨርስ',
-    '🔼 ወደ አማራ ክልል', '🔽 ወደ አዲስ አበባ', '📖 መመሪያ',
+    '🔼 አዲስ አበባ → አማራ ክልል', '🔽 አማራ ክልል → አዲስ አበባ',
   ];
   if (reserved.includes(txt)) return next();
 
@@ -850,8 +953,8 @@ bot.hears('🔧 Admin', async ctx => {
   if (!isAdmin(ctx)) return ctx.reply('⛔');
   ctx.session = {};
   await ctx.reply('🔧 *Admin Panel*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
-    [Markup.button.callback('🔼 ወደ አማራ ክልል', 'lst_dir_toamhara')],
-    [Markup.button.callback('🔽 ወደ አዲስ አበባ',  'lst_dir_toaa')],
+    [Markup.button.callback('🔼 አዲስ አበባ → አማራ ክልል', 'lst_dir_toamhara')],
+    [Markup.button.callback('🔽 አማራ ክልል → አዲስ አበባ',  'lst_dir_toaa')],
     [Markup.button.callback('🔍 ያልተፈቀዱ', 'lst_pay')],
     [Markup.button.callback('🗺️ ሰብሳቢ', 'col_pick')],
     [Markup.button.callback('🚚 ላክ', 'snd_pick')],
@@ -865,7 +968,7 @@ bot.hears('🔧 Admin', async ctx => {
 bot.action('lst_dir_toamhara', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('🔼 ወደ አማራ ክልል — መስመር ምረጥ:', Markup.inlineKeyboard(
+  await ctx.reply('🔼 አዲስ አበባ → አማራ ክልል — መስመር ምረጥ:', Markup.inlineKeyboard(
     ROUTES_TO_AMHARA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `lst_${r.id}`)])
   ));
 });
@@ -873,7 +976,7 @@ bot.action('lst_dir_toamhara', async ctx => {
 bot.action('lst_dir_toaa', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('🔽 ወደ አዲስ አበባ — መስመር ምረጥ:', Markup.inlineKeyboard(
+  await ctx.reply('🔽 አማራ ክልል → አዲስ አበባ — መስመር ምረጥ:', Markup.inlineKeyboard(
     ROUTES_TO_AA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `lst_${r.id}`)])
   ));
 });
@@ -969,21 +1072,21 @@ bot.action('snd_pick', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply('🚚 ምን አቅጣጫ?', Markup.inlineKeyboard([
-    [Markup.button.callback('🔼 ወደ አማራ ክልል', 'snd_dir_toamhara')],
-    [Markup.button.callback('🔽 ወደ አዲስ አበባ',  'snd_dir_toaa')],
+    [Markup.button.callback('🔼 አዲስ አበባ → አማራ ክልል', 'snd_dir_toamhara')],
+    [Markup.button.callback('🔽 አማራ ክልል → አዲስ አበባ',  'snd_dir_toaa')],
   ]));
 });
 
 bot.action('snd_dir_toamhara', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('🔼 ወደ አማራ ክልል:', Markup.inlineKeyboard(ROUTES_TO_AMHARA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `snd_${r.id}`)])));
+  await ctx.reply('🔼 አዲስ አበባ → አማራ ክልል:', Markup.inlineKeyboard(ROUTES_TO_AMHARA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `snd_${r.id}`)])));
 });
 
 bot.action('snd_dir_toaa', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('🔽 ወደ አዲስ አበባ:', Markup.inlineKeyboard(ROUTES_TO_AA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `snd_${r.id}`)])));
+  await ctx.reply('🔽 አማራ ክልል → አዲስ አበባ:', Markup.inlineKeyboard(ROUTES_TO_AA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `snd_${r.id}`)])));
 });
 
 bot.action(/^snd_(.+)$/, async ctx => {
@@ -1006,14 +1109,14 @@ bot.action('admin_report', async ctx => {
   await ctx.answerCbQuery().catch(() => {});
 
   let txt = '*📊 ሪፖርት*\n━━━━━━━━━━━━━━━━\n\n';
-  txt += '*🔼 ወደ አማራ ክልል*\n';
+  txt += '*🔼 አዲስ አበባ → አማራ ክልል*\n';
   for (const ro of ROUTES_TO_AMHARA) {
     const counts = await Reg.aggregate([{ $match: { routeId: ro.id } }, { $group: { _id: '$status', n: { $sum: 1 } } }]);
     const m = {}; counts.forEach(c => { m[c._id] = c.n; });
     const total = await routeWeight(ro.id);
     txt += `${ro.emoji} ${ro.label}\n✅${m.approved || 0} 🔍${m.reviewing || 0} ⏳${m.pending || 0} 🚚${m.sent || 0} | ${total}/${ro.targetKg}ኪ\n\n`;
   }
-  txt += '*🔽 ወደ አዲስ አበባ*\n';
+  txt += '*🔽 አማራ ክልል → አዲስ አበባ*\n';
   for (const ro of ROUTES_TO_AA) {
     const counts = await Reg.aggregate([{ $match: { routeId: ro.id } }, { $group: { _id: '$status', n: { $sum: 1 } } }]);
     const m = {}; counts.forEach(c => { m[c._id] = c.n; });
@@ -1028,21 +1131,21 @@ bot.action('col_pick', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply('🗺️ አቅጣጫ:', Markup.inlineKeyboard([
-    [Markup.button.callback('🔼 ወደ አማራ ክልል', 'col_dir_toamhara')],
-    [Markup.button.callback('🔽 ወደ አዲስ አበባ',  'col_dir_toaa')],
+    [Markup.button.callback('🔼 አዲስ አበባ → አማራ ክልል', 'col_dir_toamhara')],
+    [Markup.button.callback('🔽 አማራ ክልል → አዲስ አበባ',  'col_dir_toaa')],
   ]));
 });
 
 bot.action('col_dir_toamhara', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('🔼 ወደ አማራ ክልል:', Markup.inlineKeyboard(ROUTES_TO_AMHARA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `col_${r.id}`)])));
+  await ctx.reply('🔼 አዲስ አበባ → አማራ ክልል:', Markup.inlineKeyboard(ROUTES_TO_AMHARA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `col_${r.id}`)])));
 });
 
 bot.action('col_dir_toaa', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('🔽 ወደ አዲስ አበባ:', Markup.inlineKeyboard(ROUTES_TO_AA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `col_${r.id}`)])));
+  await ctx.reply('🔽 አማራ ክልል → አዲስ አበባ:', Markup.inlineKeyboard(ROUTES_TO_AA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `col_${r.id}`)])));
 });
 
 bot.action(/^col_(.+)$/, async ctx => {
@@ -1057,15 +1160,15 @@ bot.action('print_pick', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply('🖨️ አቅጣጫ:', Markup.inlineKeyboard([
-    [Markup.button.callback('🔼 ወደ አማራ ክልል', 'prnt_dir_toamhara')],
-    [Markup.button.callback('🔽 ወደ አዲስ አበባ',  'prnt_dir_toaa')],
+    [Markup.button.callback('🔼 አዲስ አበባ → አማራ ክልል', 'prnt_dir_toamhara')],
+    [Markup.button.callback('🔽 አማራ ክልል → አዲስ አበባ',  'prnt_dir_toaa')],
   ]));
 });
 
 bot.action('prnt_dir_toamhara', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('🔼 ወደ አማራ ክልል — መስመር ምረጥ:', Markup.inlineKeyboard(
+  await ctx.reply('🔼 አዲስ አበባ → አማራ ክልል — መስመር ምረጥ:', Markup.inlineKeyboard(
     ROUTES_TO_AMHARA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `prnt_${r.id}`)])
   ));
 });
@@ -1073,7 +1176,7 @@ bot.action('prnt_dir_toamhara', async ctx => {
 bot.action('prnt_dir_toaa', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('🔽 ወደ አዲስ አበባ — መስመር ምረጥ:', Markup.inlineKeyboard(
+  await ctx.reply('🔽 አማራ ክልል → አዲስ አበባ — መስመር ምረጥ:', Markup.inlineKeyboard(
     ROUTES_TO_AA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `prnt_${r.id}`)])
   ));
 });
@@ -1090,21 +1193,21 @@ bot.action('channel_panel', async ctx => {
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply(`📢 ቻናል: ${CHANNEL_ID || 'አልተቀመጠም'}`, Markup.inlineKeyboard([
     [Markup.button.callback('🧪 ፍተሻ', 'ch_test')],
-    [Markup.button.callback('🔼 ወደ አማራ ክልል', 'ch_dir_toamhara')],
-    [Markup.button.callback('🔽 ወደ አዲስ አበባ',  'ch_dir_toaa')],
+    [Markup.button.callback('🔼 አዲስ አበባ → አማራ ክልል', 'ch_dir_toamhara')],
+    [Markup.button.callback('🔽 አማራ ክልል → አዲስ አበባ',  'ch_dir_toaa')],
   ]));
 });
 
 bot.action('ch_dir_toamhara', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('📣 ወደ አማራ ክልል:', Markup.inlineKeyboard(ROUTES_TO_AMHARA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `ch_ann_${r.id}`)])));
+  await ctx.reply('📣 አዲስ አበባ → አማራ ክልል:', Markup.inlineKeyboard(ROUTES_TO_AMHARA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `ch_ann_${r.id}`)])));
 });
 
 bot.action('ch_dir_toaa', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('⛔').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply('📣 ወደ አዲስ አበባ:', Markup.inlineKeyboard(ROUTES_TO_AA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `ch_ann_${r.id}`)])));
+  await ctx.reply('📣 አማራ ክልል → አዲስ አበባ:', Markup.inlineKeyboard(ROUTES_TO_AA.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `ch_ann_${r.id}`)])));
 });
 
 bot.action('ch_test', async ctx => {
@@ -1158,7 +1261,7 @@ bot.command('stats', async ctx => {
   let txt = `📊 *Quick Stats* — ${date}\n`;
   txt += `━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-  txt += `🔼 *ወደ አማራ ክልል*\n`;
+  txt += `🔼 *አዲስ አበባ → አማራ ክልል*\n`;
   for (const ro of ROUTES_TO_AMHARA) {
     const agg = await Reg.aggregate([
       { $match: { routeId: ro.id } },
@@ -1176,7 +1279,7 @@ bot.command('stats', async ctx => {
     txt += `   💰 ${rev.toLocaleString()} ብር (ጭ. ክፍያ)\n`;
   }
 
-  txt += `\n🔽 *ወደ አዲስ አበባ*\n`;
+  txt += `\n🔽 *አማራ ክልል → አዲስ አበባ*\n`;
   for (const ro of ROUTES_TO_AA) {
     const agg = await Reg.aggregate([
       { $match: { routeId: ro.id } },
