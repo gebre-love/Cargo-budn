@@ -22,35 +22,39 @@ if (!BOT_TOKEN || !MONGO_URI) { console.error('BOT_TOKEN እና MONGO_URI ያስ
 
 const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
 
-/* ─── 2. የቡድን ግዥ ምርቶች (ዋጋ/ኪሎ ጨምሮ) ──────────────────── */
+/* ─── 2. የቡድን ግዥ ምርቶች ──────────────────────────────────── */
+// ለዘይት: unit = 'liter', ለሌሎቹ: unit = 'kg'
 const GB_PRODUCTS = [
   {
-    id: 'teff',  emoji: '🌾', label: 'ጤፍ',
+    id: 'teff',  emoji: '🌾', label: 'ጤፍ',    unit: 'kg',
     targetKg:    Number(process.env.GB_TEFF_KG)    || 5000,
-    pricePerKg:  Number(process.env.GB_TEFF_PRICE)  || 75,   // ብር/ኪሎ
+    pricePerKg:  Number(process.env.GB_TEFF_PRICE)  || 75,
   },
   {
-    id: 'oil',   emoji: '🛢',  label: 'ዘይት',
+    id: 'oil',   emoji: '🛢',  label: 'ዘይት',  unit: 'liter',
     targetKg:    Number(process.env.GB_OIL_KG)     || 3000,
     pricePerKg:  Number(process.env.GB_OIL_PRICE)   || 120,
   },
   {
-    id: 'sugar', emoji: '🍚', label: 'ስኳር',
+    id: 'sugar', emoji: '🍚', label: 'ስኳር',   unit: 'kg',
     targetKg:    Number(process.env.GB_SUGAR_KG)   || 3000,
     pricePerKg:  Number(process.env.GB_SUGAR_PRICE) || 55,
   },
   {
-    id: 'flour', emoji: '🌽', label: 'ዱቄት',
+    id: 'flour', emoji: '🌽', label: 'ዱቄት',   unit: 'kg',
     targetKg:    Number(process.env.GB_FLOUR_KG)   || 3000,
     pricePerKg:  Number(process.env.GB_FLOUR_PRICE) || 60,
   },
   {
-    id: 'onion', emoji: '🧅', label: 'ሽንኩርት',
+    id: 'onion', emoji: '🧅', label: 'ሽንኩርት', unit: 'kg',
     targetKg:    Number(process.env.GB_ONION_KG)   || 2000,
     pricePerKg:  Number(process.env.GB_ONION_PRICE) || 30,
   },
 ];
 const byProduct = id => GB_PRODUCTS.find(p => p.id === id);
+
+// unit label helper
+const unitLabel = p => p.unit === 'liter' ? 'ሊትር' : 'ኪሎ';
 
 /* ─── 3. ROUTES / METHODS ───────────────────────────────── */
 const ROUTES_TO_AMHARA = [
@@ -104,7 +108,6 @@ const Reg = mongoose.model('Reg', new mongoose.Schema({
   createdAt:      { type: Date, default: Date.now },
 }));
 
-/* Group Buy Registrations */
 const GBReg = mongoose.model('GBReg', new mongoose.Schema({
   userId:      { type: Number, required: true },
   username:    { type: String, default: '' },
@@ -112,8 +115,8 @@ const GBReg = mongoose.model('GBReg', new mongoose.Schema({
   fullName:    String,
   phone:       String,
   weightKg:    { type: Number, default: 0 },
-  totalCost:   { type: Number, default: 0 },  // weightKg × pricePerKg
-  pricePerKg:  { type: Number, default: 0 },  // ዋጋ ሲመዘገቡ የነበረ
+  totalCost:   { type: Number, default: 0 },
+  pricePerKg:  { type: Number, default: 0 },
   createdAt:   { type: Date, default: Date.now },
 }));
 
@@ -127,6 +130,20 @@ const RouteCap = mongoose.model('RouteCap', new mongoose.Schema({
   routeId:  { type: String, unique: true },
   notified: { type: Boolean, default: false },
 }));
+
+/* ─── NEW: BotSettings model for main menu toggle ───────── */
+const BotSettings = mongoose.model('BotSettings', new mongoose.Schema({
+  key:   { type: String, unique: true },
+  value: { type: mongoose.Schema.Types.Mixed },
+}));
+
+async function getSetting(key, defaultVal) {
+  const doc = await BotSettings.findOne({ key }).lean();
+  return doc ? doc.value : defaultVal;
+}
+async function setSetting(key, value) {
+  await BotSettings.findOneAndUpdate({ key }, { value }, { upsert: true });
+}
 
 /* ─── 5. SESSION ────────────────────────────────────────── */
 async function getSession(key) {
@@ -318,6 +335,21 @@ function startDailyReportScheduler() {
 /* ─── 13. BOT + MIDDLEWARE ──────────────────────────────── */
 const bot = new Telegraf(BOT_TOKEN, { handlerTimeout: 120_000, telegram: { timeout: 120 } });
 bot.use(sessionMW);
+
+/* ── Main menu on/off gate (non-admin only) ── */
+bot.use(async (ctx, next) => {
+  if (isAdmin(ctx)) return next();
+  // Always allow /start and /help
+  const text = ctx.message?.text || '';
+  if (text === '/start' || text === '/help') return next();
+  const menuEnabled = await getSetting('mainMenuEnabled', true);
+  if (!menuEnabled) {
+    await ctx.reply('ቦቱ አሁን ጊዜያዊ ዝግ ነው። ትንሽ ቆይተው ይሞክሩ።\n\n' + SUPPORT_PHONE).catch(() => {});
+    return;
+  }
+  return next();
+});
+
 bot.use(async (ctx, next) => {
   if (ctx.from?.id && !isAdmin(ctx) && isRateLimited(ctx.from.id)) return ctx.reply('ብዙ ጥያቄ — ትንሽ ይጠብቁ').catch(() => {});
   return next();
@@ -326,7 +358,12 @@ bot.catch((err, ctx) => console.error('Bot error:', err?.message, ctx?.updateTyp
 
 /* ─── 14. WELCOME ───────────────────────────────────────── */
 function welcomeText(name) {
-  const prices = GB_PRODUCTS.map(p => `${p.emoji} ${p.label}: *${p.pricePerKg} ብር/ኪሎ*`).join('\n');
+  // FIX 4: prices pulled from GB_PRODUCTS (env-var driven), oil shows ብር/ሊትር
+  const prices = GB_PRODUCTS.map(p => {
+    const ul = unitLabel(p);
+    return `${p.emoji} ${p.label}: *${p.pricePerKg} ብር/${ul}*`;
+  }).join('\n');
+
   return (
     `*እንኳን ደህና መጡ, ${name}!*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -396,12 +433,12 @@ for (const prod of GB_PRODUCTS) {
       { $group: { _id: null, kg: { $sum: '$weightKg' }, count: { $sum: 1 } } },
     ]);
     const regKg = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
-    const remain = Math.max(0, prod.targetKg - regKg);
+    const ul = unitLabel(prod);
 
     await ctx.reply(
       `${prod.emoji} *${prod.label} — የቡድን ግዥ*\n` +
       `━━━━━━━━━━━━━━━━\n` +
-      `💰 *አሁናዊ ዋጋ: ${prod.pricePerKg} ብር/ኪሎ*\n` +
+      `💰 *አሁናዊ ዋጋ: ${prod.pricePerKg} ብር/${ul}*\n` +
       `_(ቀጥታ ከ ምንጭ — ከገበያ ዋጋ ያነሰ!)_\n\n` +
       `${capLine(regKg, prod.targetKg)}\n` +
       `ተሳታፊ ሰዎች: ${regCount}\n\n` +
@@ -444,7 +481,17 @@ bot.action(/^pm_(.+)$/, async ctx => {
   await checkCapacity(routeId);
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   const acct = m.info.includes(':') ? m.info.split(':').slice(1).join(':').trim() : m.info;
-  await ctx.reply(`${m.emoji} *${m.label}*\n━━━━━━━━━━━━━━━━\nቁጥር: \`${acct}\`\n\n*${r.totalPrice} ብር* ይክፈሉ\n\nከዚያ *ደረሰኝ ፎቶ* ላኩ`, { parse_mode: 'Markdown', ...mainKb() });
+
+  // FIX 3: show service fee clearly + instruct to send screenshot
+  await ctx.reply(
+    `${m.emoji} *${m.label}*\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `ቁጥር: \`${acct}\`\n\n` +
+    `*የምዝገባ ክፍያ: ${r.totalPrice} ብር* (${d.kg} ኪሎ × ${REG_PER_KG} ብር/ኪሎ)\n\n` +
+    `⚠️ ክፍያ ከፈጸሙ በኋላ *የደረሰኝ ፎቶ (screenshot)* ይላኩ።\n` +
+    `ፎቶ ሳይልኩ ምዝገባ አይጠናቀቅም!`,
+    { parse_mode: 'Markdown', ...mainKb() }
+  );
 });
 
 /* ─── 19. TEXT FLOW ─────────────────────────────────────── */
@@ -472,9 +519,10 @@ bot.on('text', async (ctx, next) => {
       return ctx.reply('ትክክለኛ ስልክ ያስገቡ\nምሳሌ: 0912345678');
     ctx.session.gbPhone = phone; ctx.session.step = 'GB_KG';
     const prod = byProduct(ctx.session.gbProductId);
+    const ul = unitLabel(prod);
     return ctx.reply(
-      `ምን ያህል ኪሎ *${prod?.label}* ይፈልጋሉ?\n` +
-      `_(1 ኪሎ = ${prod?.pricePerKg} ብር)_\n\nቁጥር ያስገቡ:`,
+      `ምን ያህል *${ul}* *${prod?.label}* ይፈልጋሉ?\n` +
+      `_(1 ${ul} = ${prod?.pricePerKg} ብር)_\n\nቁጥር ያስገቡ:`,
       { parse_mode: 'Markdown' }
     );
   }
@@ -483,6 +531,7 @@ bot.on('text', async (ctx, next) => {
     const kg = parseFloat(txt.replace(/[^0-9.]/g, ''));
     if (!kg || kg <= 0 || kg > 5000) return ctx.reply('ትክክለኛ ቁጥር ያስገቡ (1–5000)');
     const prod = byProduct(ctx.session.gbProductId);
+    const ul = unitLabel(prod);
     const { gbName, gbPhone, gbProductId } = ctx.session;
     const totalCost = Math.round(kg * (prod?.pricePerKg || 0));
     ctx.session = {};
@@ -501,8 +550,8 @@ bot.on('text', async (ctx, next) => {
       `━━━━━━━━━━━━━━━━\n` +
       `${prod?.emoji} *${prod?.label}*\n` +
       `ስም: ${gbName} | ስልክ: ${gbPhone}\n` +
-      `ተመዝግቦ: *${kg} ኪሎ*\n` +
-      `💰 ዋጋ: ${prod?.pricePerKg} ብር/ኪሎ\n` +
+      `ተመዝግቦ: *${kg} ${ul}*\n` +
+      `💰 ዋጋ: ${prod?.pricePerKg} ብር/${ul}\n` +
       `💵 ጠቅላላ: *${totalCost.toLocaleString()} ብር*\n\n` +
       `*ጠቅላላ ሁኔታ:*\n${capLine(regKg, prod?.targetKg || 5000)}\n` +
       `ተሳታፊ ሰዎች: ${regCount}\n\n` +
@@ -512,7 +561,7 @@ bot.on('text', async (ctx, next) => {
 
     for (const aid of ADMIN_IDS)
       bot.telegram.sendMessage(aid,
-        `አዲስ GB ምዝገባ: ${prod?.emoji}${prod?.label} — ${gbName} (${gbPhone}) — ${kg}ኪ @ ${prod?.pricePerKg}ብ/ኪ = ${totalCost.toLocaleString()}ብ`
+        `አዲስ GB ምዝገባ: ${prod?.emoji}${prod?.label} — ${gbName} (${gbPhone}) — ${kg}${ul} @ ${prod?.pricePerKg}ብ/${ul} = ${totalCost.toLocaleString()}ብ`
       ).catch(() => {});
     return;
   }
@@ -533,8 +582,15 @@ bot.on('text', async (ctx, next) => {
     const kg = parseFloat(txt.replace(/[^0-9.]/g, ''));
     if (!kg || kg <= 0 || kg > 2000) return ctx.reply('ትክክለኛ ቁጥር ያስገቡ (1–2000)');
     ctx.session.d.kg = kg; ctx.session.step = 'PAYMETHOD';
+
+    // FIX 3: show fee breakdown in summary before payment method selection
     return ctx.reply(
-      `*ማጠቃለያ*\n━━━━━━━━━━━━━━━━\nስም: ${ctx.session.d.name}\nጭነት: ${ctx.session.d.cargo} — *${kg} ኪሎ*\nምዝ. ክፍያ: *${kg * REG_PER_KG} ብር*\nጭ. ክፍያ: ${kg * SHIP_PER_KG} ብር (ሲሰበሰብ)\n\nክፍያ መንገድ ይምረጡ:`,
+      `*ማጠቃለያ*\n━━━━━━━━━━━━━━━━\n` +
+      `ስም: ${ctx.session.d.name}\n` +
+      `ጭነት: ${ctx.session.d.cargo} — *${kg} ኪሎ*\n\n` +
+      `💳 *የምዝገባ ክፍያ: ${kg * REG_PER_KG} ብር* (አሁን ይከፈላል)\n` +
+      `🚚 የጭነት ክፍያ: ${kg * SHIP_PER_KG} ብር (ሲሰበሰብ)\n\n` +
+      `ክፍያ ዘዴ ይምረጡ:`,
       { parse_mode: 'Markdown', ...Markup.inlineKeyboard(METHODS.map(m => [Markup.button.callback(`${m.emoji} ${m.label}`, `pm_${m.id}`)])) }
     );
   }
@@ -621,6 +677,9 @@ bot.on('photo', async ctx => {
 bot.hears('🔧 Admin', async ctx => {
   if (!isAdmin(ctx)) return ctx.reply('ፈቃድ የለዎትም');
   ctx.session = {};
+  const menuEnabled = await getSetting('mainMenuEnabled', true);
+  const toggleLabel = menuEnabled ? '🔴 Main Menu አጥፋ (OFF)' : '🟢 Main Menu አብራ (ON)';
+
   await ctx.reply('*የአስተዳዳሪ ፓነል*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
     [Markup.button.callback('አዲስ አበባ → አማራ ክልል ምዝገቦች', 'lst_dir_toamhara')],
     [Markup.button.callback('አማራ ክልል → አዲስ አበባ ምዝገቦች',  'lst_dir_toaa')],
@@ -632,7 +691,19 @@ bot.hears('🔧 Admin', async ctx => {
     [Markup.button.callback('ዝርዝር አትም (Print Manifest)',    'print_pick')],
     [Markup.button.callback('📦 የቡድን ግዥ ሁኔታ',              'gb_status')],
     [Markup.button.callback('📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ',        'gb_broadcast_remain')],
+    [Markup.button.callback(toggleLabel,                     'toggle_main_menu')],
   ]) });
+});
+
+/* ── NEW: Toggle main menu on/off ── */
+bot.action('toggle_main_menu', async ctx => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const current = await getSetting('mainMenuEnabled', true);
+  const next = !current;
+  await setSetting('mainMenuEnabled', next);
+  const statusText = next ? '🟢 Main Menu ተከፈተ (ON)' : '🔴 Main Menu ተዘጋ (OFF)';
+  await ctx.reply(`*${statusText}*\n\n${next ? 'ተጠቃሚዎች ቦቱን መጠቀም ይችላሉ።' : 'ተጠቃሚዎች ጊዜያዊ ዝግ መልዕክት ያያሉ።'}`, { parse_mode: 'Markdown' });
 });
 
 /* ── GB status per product ── */
@@ -642,10 +713,11 @@ bot.action('gb_status', async ctx => {
 
   let txt = '*📦 የቡድን ግዥ ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n';
   for (const prod of GB_PRODUCTS) {
+    const ul = unitLabel(prod);
     const res = await GBReg.aggregate([{ $match: { productId: prod.id } }, { $group: { _id: null, kg: { $sum: '$weightKg' }, count: { $sum: 1 }, revenue: { $sum: '$totalCost' } } }]);
     const regKg = res[0]?.kg || 0, regCount = res[0]?.count || 0, revenue = res[0]?.revenue || 0;
     txt +=
-      `${prod.emoji} *${prod.label}* — ${prod.pricePerKg} ብር/ኪሎ\n` +
+      `${prod.emoji} *${prod.label}* — ${prod.pricePerKg} ብር/${ul}\n` +
       `${capLine(regKg, prod.targetKg)}\n` +
       `ተሳታፊ ሰዎች: ${regCount} | ጠቅላላ ዋጋ: ${revenue.toLocaleString()} ብር\n\n`;
   }
@@ -657,12 +729,13 @@ bot.action('gb_broadcast_remain', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
 
-  let summary = '*🛒 የቡድን ግዥ — ቀሪ ኪሎ ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n';
+  let summary = '*🛒 የቡድን ግዥ — ቀሪ ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n';
   for (const prod of GB_PRODUCTS) {
+    const ul = unitLabel(prod);
     const res = await GBReg.aggregate([{ $match: { productId: prod.id } }, { $group: { _id: null, kg: { $sum: '$weightKg' }, count: { $sum: 1 } } }]);
     const regKg = res[0]?.kg || 0, regCount = res[0]?.count || 0;
     summary +=
-      `${prod.emoji} *${prod.label}* — *${prod.pricePerKg} ብር/ኪሎ*\n` +
+      `${prod.emoji} *${prod.label}* — *${prod.pricePerKg} ብር/${ul}*\n` +
       `${capLine(regKg, prod.targetKg)}\nተሳታፊ ሰዎች: ${regCount}\n\n`;
   }
   summary +=
@@ -670,7 +743,7 @@ bot.action('gb_broadcast_remain', async ctx => {
     `አነስተኛ የአገልግሎት ክፍያ ብቻ — *ፍቱን መድሃኒት!*\n\n` +
     `ለምዝገባ ቦቱን ይጠቀሙ | ${SUPPORT_PHONE}`;
 
-  const gbUsers   = await GBReg.distinct('userId');
+  const gbUsers    = await GBReg.distinct('userId');
   const cargoUsers = await Reg.distinct('userId', { status: { $nin: ['rejected'] } });
   const allUsers   = [...new Set([...gbUsers, ...cargoUsers])];
 
@@ -679,7 +752,7 @@ bot.action('gb_broadcast_remain', async ctx => {
     try { await bot.telegram.sendMessage(uid, summary, { parse_mode: 'Markdown' }); sent++; } catch {}
     await new Promise(r => setTimeout(r, 50));
   }
-  await ctx.reply(`✅ ቀሪ ኪሎ ሁኔታ ለ ${sent} ሰው ተልኳል`);
+  await ctx.reply(`✅ ቀሪ ሁኔታ ለ ${sent} ሰው ተልኳል`);
 });
 
 /* ── Route lists ── */
