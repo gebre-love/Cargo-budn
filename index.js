@@ -197,13 +197,15 @@ function capLine(total, target) {
 }
 
 const mainKb = () => Markup.keyboard([
-  ['━━━ ወደ አማራ ክልል ━━━'],
-  ...ROUTES_TO_AMHARA.map(r => [`${r.emoji} ${r.label}`]),
-  ['━━━ ወደ አዲስ አበባ ━━━'],
-  ...ROUTES_TO_AA.map(r => [`${r.emoji} ${r.label}`]),
+  ['🔼 ወደ አማራ ክልል', '🔽 ወደ አዲስ አበባ'],
   ['📋 ምዝገባዬ', '📊 ቆጣሪ'],
+  ['📖 መመሪያ'],
   ...(ADMIN_IDS.length ? [['🔧 Admin']] : []),
 ]).resize();
+
+const dirRoutesKb = routes => Markup.inlineKeyboard(
+  routes.map(r => [Markup.button.callback(`${r.emoji} ${r.label}`, `goto_${r.id}`)])
+);
 
 const locKb = () => Markup.keyboard([
   [Markup.button.locationRequest('📍 አድራሻዬን ላክ')],
@@ -324,135 +326,68 @@ async function withRetry(fn, retries = 3, delayMs = 3000) {
 }
 
 /* ────────────────────────────────────────────────────────────
-   10. PRINTABLE MANIFEST (HTML) — per-route passenger/cargo list
+   10. PRINTABLE MANIFEST (TEXT) — per-route passenger/cargo list
+   Sent as plain chat messages (no file upload) to avoid
+   network failures like "socket hang up" on slow connections.
    ──────────────────────────────────────────────────────────── */
 
-const PRINT_STATUS = {
-  approved:  'ፈቃድ ያላቸው',
-  reviewing: 'እየተፈተሸ',
-  pending:   'ያልከፈሉ',
-  sent:      'ተልኳል',
+const PRINT_STATUS_ORDER  = ['approved', 'reviewing', 'pending', 'sent'];
+const PRINT_STATUS_HEADER = {
+  approved:  '✅ ፈቃድ ያላቸው',
+  reviewing: '🔍 እየተፈተሸ ያለ',
+  pending:   '⏳ ክፍያ ያልከፈሉ',
+  sent:      '🚚 ጭነት የተላከ',
 };
-
-function buildManifestHTML(ro, list) {
-  const totalKg   = list.reduce((s, r) => s + (r.weightKg || 0), 0);
-  const totalReg  = totalKg * REG_PER_KG;
-  const totalShip = totalKg * SHIP_PER_KG;
-
-  const cnt = { approved: 0, reviewing: 0, pending: 0, sent: 0 };
-  list.forEach(r => { if (cnt[r.status] !== undefined) cnt[r.status]++; });
-
-  const date = new Date().toLocaleDateString('en-GB');
-
-  const ORDER  = ['approved', 'reviewing', 'pending', 'sent'];
-  const sorted = [...list].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status));
-
-  const rows = sorted.map((r, i) => {
-    const statusAm = PRINT_STATUS[r.status] || r.status;
-    const mapUrl   = r.locationLat
-      ? `<a href="https://maps.google.com/?q=${r.locationLat},${r.locationLng}">ካርታ</a>`
-      : '-';
-    const bg = r.status === 'approved' ? '#e8f5e9'
-             : r.status === 'reviewing' ? '#fff8e1'
-             : r.status === 'sent'      ? '#e3f2fd'
-             : '#fff';
-    return `<tr style="background:${bg}">
-      <td>${i + 1}</td>
-      <td>${r.fullName || '-'}</td>
-      <td>${r.phone || '-'}</td>
-      <td>${r.cargoDesc || '-'}</td>
-      <td>${r.weightKg || 0}</td>
-      <td>${(r.weightKg || 0) * REG_PER_KG}</td>
-      <td>${(r.weightKg || 0) * SHIP_PER_KG}</td>
-      <td>${statusAm}</td>
-      <td>${mapUrl}</td>
-    </tr>`;
-  }).join('');
-
-  return `<!DOCTYPE html>
-<html lang="am"><head>
-<meta charset="UTF-8">
-<title>${ro.label}</title>
-<style>
-body{font-family:sans-serif;font-size:13px;padding:12px;color:#111}
-h2{font-size:15px;margin-bottom:6px}
-.meta{color:#555;margin-bottom:10px;font-size:12px}
-.boxes{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.box{border:1px solid #ddd;border-radius:5px;padding:6px 12px;text-align:center;background:#fafafa;min-width:90px}
-.box .v{font-size:18px;font-weight:bold}
-.box .l{font-size:10px;color:#666}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th{background:#263238;color:#fff;padding:6px;text-align:left}
-td{padding:5px 6px;border-bottom:1px solid #e0e0e0}
-a{color:#1565c0}
-.legend{margin-top:10px;font-size:11px;display:flex;gap:12px;flex-wrap:wrap}
-.dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:3px;vertical-align:middle}
-button{margin-top:12px;padding:8px 24px;font-size:13px;background:#263238;color:#fff;border:none;border-radius:5px;cursor:pointer}
-@media print{button{display:none}body{padding:0;font-size:11px}th,td{font-size:10px;padding:3px 4px}}
-</style>
-</head>
-<body>
-<h2>${ro.label} — የጭነት ዝርዝር</h2>
-<div class="meta">📅 ${date} | 👥 ${list.length} ሰው | ⚖️ ${totalKg} ኪሎ</div>
-<div class="boxes">
-  <div class="box"><div class="v">${list.length}</div><div class="l">ጠቅላላ ሰው</div></div>
-  <div class="box"><div class="v">${totalKg}</div><div class="l">ጠቅላላ ኪሎ</div></div>
-  <div class="box" style="background:#e8f5e9"><div class="v">${cnt.approved}</div><div class="l">✅ ፈቃድ ያላቸው</div></div>
-  <div class="box" style="background:#fff8e1"><div class="v">${cnt.reviewing}</div><div class="l">🔍 እየተፈተሸ</div></div>
-  <div class="box"><div class="v">${cnt.pending}</div><div class="l">⏳ ያልከፈሉ</div></div>
-  <div class="box" style="background:#e3f2fd"><div class="v">${cnt.sent}</div><div class="l">🚚 ተልኳል</div></div>
-  <div class="box"><div class="v">${totalReg.toLocaleString()}</div><div class="l">ምዝ. ክፍያ (ብር)</div></div>
-  <div class="box"><div class="v">${totalShip.toLocaleString()}</div><div class="l">ጭ. ክፍያ (ብር)</div></div>
-</div>
-<table>
-<thead><tr><th>#</th><th>ሙሉ ስም</th><th>ስልክ</th><th>ጭነት ዓይነት</th><th>ኪሎ</th><th>ምዝ. ክፍያ</th><th>ጭ. ክፍያ</th><th>ሁኔታ</th><th>አድራሻ</th></tr></thead>
-<tbody>${rows}</tbody>
-</table>
-<div class="legend">
-  <span><span class="dot" style="background:#e8f5e9;border:1px solid #aaa"></span>ፈቃድ ያላቸው</span>
-  <span><span class="dot" style="background:#fff8e1;border:1px solid #aaa"></span>እየተፈተሸ</span>
-  <span><span class="dot" style="background:#fff;border:1px solid #aaa"></span>ያልከፈሉ</span>
-  <span><span class="dot" style="background:#e3f2fd;border:1px solid #aaa"></span>ተልኳል</span>
-</div>
-<button onclick="window.print()">🖨️ ፕሪንት</button>
-</body></html>`;
-}
 
 async function handlePrint(ctx, routeId) {
   const ro = byRoute(routeId);
   if (!ro) { await ctx.reply('መስመር አልተገኘም'); return; }
+
   try {
-    const waitMsg = await ctx.reply('⏳ ዝርዝር እየተዘጋጀ ነው...');
     const list = await Reg.find({ routeId, status: { $ne: 'rejected' } }).sort({ createdAt: 1 }).lean();
+    if (!list.length) return ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም`);
 
-    if (!list.length) {
-      await ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም`);
-      return;
-    }
+    const totalKg   = list.reduce((s, r) => s + (r.weightKg || 0), 0);
+    const totalReg  = totalKg * REG_PER_KG;
+    const totalShip = totalKg * SHIP_PER_KG;
+    const cnt = { approved: 0, reviewing: 0, pending: 0, sent: 0 };
+    list.forEach(r => { if (cnt[r.status] !== undefined) cnt[r.status]++; });
+    const date = new Date().toLocaleDateString('en-GB');
 
-    const totalKg = list.reduce((s, r) => s + (r.weightKg || 0), 0);
-    const html    = buildManifestHTML(ro, list);
-    const buf     = Buffer.from(html, 'utf-8');
-    const fname   = `${ro.id}_manifest.html`;
-
-    await withRetry(() =>
-      bot.telegram.sendDocument(
-        ctx.chat.id,
-        { source: buf, filename: fname },
-        {
-          caption:
-            `🖨️ *${ro.label}*\n` +
-            `👥 ${list.length} ሰው | ⚖️ ${totalKg} ኪሎ\n\n` +
-            `ፋይሉን ያውርዱ → Chrome/Firefox ይክፈቱ → ፕሪንት ይጫኑ`,
-          parse_mode: 'Markdown',
-        }
-      )
+    await ctx.reply(
+      `🖨️ *ፕሪንት ዝርዝር*\n` +
+      `${ro.emoji} *${ro.label}*\n` +
+      `📅 ${date}\n` +
+      `━━━━━━━━━━━━━━━━\n` +
+      `👥 ጠቅላላ ሰው: *${list.length}*\n` +
+      `⚖️ ጠቅላላ ኪሎ: *${totalKg}*\n` +
+      `✅${cnt.approved} 🔍${cnt.reviewing} ⏳${cnt.pending} 🚚${cnt.sent}\n` +
+      `💵 ምዝ: ${totalReg.toLocaleString('en')}ብ | 🚛 ጭ: ${totalShip.toLocaleString('en')}ብ`,
+      { parse_mode: 'Markdown' }
     );
 
-    bot.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+    let idx = 1;
+    for (const statusKey of PRINT_STATUS_ORDER) {
+      const members = list.filter(r => r.status === statusKey);
+      if (!members.length) continue;
+
+      for (let i = 0; i < members.length; i += 12) {
+        const batch = members.slice(i, i + 12);
+        let rows = i === 0 ? `${PRINT_STATUS_HEADER[statusKey]} (${members.length})\n─────────────\n` : '';
+        for (const r of batch) {
+          const mapLink = r.locationLat
+            ? `[ካርታ](https://maps.google.com/?q=${r.locationLat},${r.locationLng})`
+            : '—';
+          rows +=
+            `*${idx++}.* ${r.fullName} | 📞${r.phone}\n` +
+            `📦${r.cargoDesc} ${r.weightKg}ኪ | ${mapLink}\n\n`;
+        }
+        await ctx.reply(rows.trim(), { parse_mode: 'Markdown', link_preview_options: { is_disabled: true } });
+      }
+    }
   } catch (e) {
     console.error('handlePrint error:', e.message);
-    await ctx.reply(`❌ ፋይሉን መላክ አልተሳካም (${e.message})\n\nትንሽ ቆይተው እንደገና ይሞክሩ`).catch(() => {});
+    await ctx.reply(`❌ ስህተት: ${e.message}\n\nትንሽ ቆይተው እንደገና ይሞክሩ`).catch(() => {});
   }
 }
 
@@ -544,11 +479,45 @@ bot.start(async ctx => {
     `• የምዝገባ ክፍያ: *${REG_PER_KG} ብር/ኪሎ* (አሁን)\n` +
     `• የጭነት ክፍያ: *${SHIP_PER_KG} ብር/ኪሎ* (ሲሰበሰብ)\n\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `👇 *አቅጣጫ ይምረጡ ↓ ወይም መስመር ይምረጡ!*`,
+    `📖 እንዴት ይሰራል? "📖 መመሪያ" ይጫኑ ወይም /help ይጻፉ\n\n` +
+    `👇 *አቅጣጫ ይምረጡ:*`,
     { parse_mode: 'Markdown', ...mainKb() }
   );
 });
 
+/* ────────────────────────────────────────────────────────────
+   13b. /help — USAGE GUIDE
+   ──────────────────────────────────────────────────────────── */
+
+function helpText() {
+  return (
+    `📖 *የቦት አጠቃቀም መመሪያ*\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `1️⃣ *መስመር ይምረጡ*\n` +
+    `   🔼 ወደ አማራ ክልል ወይም 🔽 ወደ አዲስ አበባ → ከዚያ ትክክለኛ ከተማ ይምረጡ\n\n` +
+    `2️⃣ *መረጃ ይሙሉ*\n` +
+    `   ስም → ስልክ → ጭነት ዓይነት → ክብደት (ኪሎ)\n\n` +
+    `3️⃣ *ክፍያ ይፈጽሙ*\n` +
+    `   ቴሌብር ወይም CBE ይምረጡ → ይክፈሉ → ደረሰኝ ፎቶ ይላኩ\n\n` +
+    `4️⃣ *አድራሻ ያጋሩ*\n` +
+    `   📍 ቁልፉን ይጫኑ — ሠራተኞቻችን ቤትዎ ድረስ ይሰበስቡዎታል\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `📋 *ምዝገባዬ* — የእርስዎን ምዝገባዎች ለማየት/ለመሰረዝ\n` +
+    `📊 *ቆጣሪ* — እያንዳንዱ መስመር ስንት ኪሎ እንደሞላ ለማየት\n\n` +
+    `💵 *ዋጋ:* ${REG_PER_KG} ብር/ኪ (ምዝገባ) + ${SHIP_PER_KG} ብር/ኪ (ጭነት ሲሰበሰብ)\n\n` +
+    `❓ ለጥያቄ: ${SUPPORT_PHONE}`
+  );
+}
+
+bot.command('help', async ctx => {
+  ctx.session = {};
+  await ctx.reply(helpText(), { parse_mode: 'Markdown', ...mainKb() });
+});
+
+bot.hears('📖 መመሪያ', async ctx => {
+  ctx.session = {};
+  await ctx.reply(helpText(), { parse_mode: 'Markdown', ...mainKb() });
+});
 /* ────────────────────────────────────────────────────────────
    14. ቆጣሪ / ምዝገባዬ (status & "my registrations" views)
    ──────────────────────────────────────────────────────────── */
@@ -594,21 +563,35 @@ bot.action(/^addloc_([a-f\d]{24})$/i, async ctx => {
 
 /* ────────────────────────────────────────────────────────────
    15. ROUTE SELECTION → START REGISTRATION
-   Skip section separator rows (they start with ━)
    ──────────────────────────────────────────────────────────── */
 
-ROUTES.forEach(route => {
-  bot.hears(`${route.emoji} ${route.label}`, async ctx => {
-    const ex = await Reg.findOne({ userId: ctx.from.id, routeId: route.id, status: { $nin: ['rejected', 'sent'] } }).lean();
-    if (ex) {
-      const btns = [Markup.button.callback('🗑️ ሰርዝ', `del_${ex._id}`)];
-      if (!ex.locationLat) btns.push(Markup.button.callback('📍 አድራሻ ላክ', `addloc_${ex._id}`));
-      btns.push(Markup.button.callback('➕ ሌላ እቃ', `more_${route.id}`));
-      return ctx.reply(card(ex) + '\n\n_ቀደም ሲል ተመዝግበዋል_', { parse_mode: 'Markdown', ...Markup.inlineKeyboard([btns]) });
-    }
-    ctx.session = { step: 'NAME', routeId: route.id, d: {} };
-    await ctx.reply(`${route.emoji} *${route.label}*\n\n👤 ሙሉ ስምዎን ያስገቡ:`, { parse_mode: 'Markdown', ...mainKb() });
-  });
+async function startRegistration(ctx, route) {
+  const ex = await Reg.findOne({ userId: ctx.from.id, routeId: route.id, status: { $nin: ['rejected', 'sent'] } }).lean();
+  if (ex) {
+    const btns = [Markup.button.callback('🗑️ ሰርዝ', `del_${ex._id}`)];
+    if (!ex.locationLat) btns.push(Markup.button.callback('📍 አድራሻ ላክ', `addloc_${ex._id}`));
+    btns.push(Markup.button.callback('➕ ሌላ እቃ', `more_${route.id}`));
+    return ctx.reply(card(ex) + '\n\n_ቀደም ሲል ተመዝግበዋል_', { parse_mode: 'Markdown', ...Markup.inlineKeyboard([btns]) });
+  }
+  ctx.session = { step: 'NAME', routeId: route.id, d: {} };
+  await ctx.reply(`${route.emoji} *${route.label}*\n\n👤 ሙሉ ስምዎን ያስገቡ:`, { parse_mode: 'Markdown', ...mainKb() });
+}
+
+bot.hears('🔼 ወደ አማራ ክልል', async ctx => {
+  ctx.session = {};
+  await ctx.reply('🔼 *ወደ አማራ ክልል* — መስመር ይምረጡ:', { parse_mode: 'Markdown', ...dirRoutesKb(ROUTES_TO_AMHARA) });
+});
+
+bot.hears('🔽 ወደ አዲስ አበባ', async ctx => {
+  ctx.session = {};
+  await ctx.reply('🔽 *ወደ አዲስ አበባ* — መስመር ይምረጡ:', { parse_mode: 'Markdown', ...dirRoutesKb(ROUTES_TO_AA) });
+});
+
+bot.action(/^goto_(.+)$/, async ctx => {
+  await ctx.answerCbQuery().catch(() => {});
+  const route = byRoute(ctx.match[1]);
+  if (!route) return;
+  await startRegistration(ctx, route);
 });
 
 bot.action(/^more_(.+)$/, async ctx => {
@@ -664,8 +647,7 @@ bot.on('text', async (ctx, next) => {
   const txt = ctx.message.text.trim();
   const reserved = [
     '📋 ምዝገባዬ', '📊 ቆጣሪ', '🔧 Admin', '⏭️ ሳላጋራ ጨርስ',
-    '━━━ ወደ አማራ ክልል ━━━', '━━━ ወደ አዲስ አበባ ━━━',
-    ...ROUTES.map(r => `${r.emoji} ${r.label}`),
+    '🔼 ወደ አማራ ክልል', '🔽 ወደ አዲስ አበባ', '📖 መመሪያ',
   ];
   if (reserved.includes(txt)) return next();
 
