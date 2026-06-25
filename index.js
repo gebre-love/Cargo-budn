@@ -15,16 +15,17 @@ const http                  = require('http');
    ──────────────────────────────────────────────────────────── */
 
 // ══════════════════════════════════════════════
-//   ⚙️  ቅንብሮች — እዚህ ይቀይሩ
+//   ⚙️  ቅንብሮች — እነዚህ ከ Render → Environment ይነበባሉ
+//   (Render Dashboard → Environment Variables ላይ ያስቀምጡ)
 // ══════════════════════════════════════════════
-const BOT_TOKEN         = 'ቦቱን TOKEN ይጻፉ';          // 👈 የቦት token
-const MONGO_URI         = 'MongoDB URI ይጻፉ';         // 👈 MongoDB link
-const SUPPORT_PHONE     = '0960336138';               // 👈 ድጋፍ ስልክ
-const ADMIN_IDS         = [123456789];                // 👈 Admin Telegram ID (ቁጥር)
-const ANTHROPIC_KEY     = '';                         // 👈 Claude API key (ባዶ ይሁን AI ከሌለ)
-const AI_AUTO_APPROVE   = true;                       // 👈 AI ካረጋገጠ ራስ-ፈቃድ (true/false)
-const TARGET_KG_DEFAULT = 5000;                       // 👈 የኢላማ ኪሎ በመስመር
-const CHANNEL_ID        = '';                         // 👈 ቻናል ID (ባዶ ይሁን ከሌለ)
+const BOT_TOKEN         = (process.env.BOT_TOKEN || '').trim();
+const MONGO_URI         = process.env.MONGO_URI  || '';
+const SUPPORT_PHONE     = process.env.SUPPORT_PHONE     || '0960336138';
+const ADMIN_IDS         = (process.env.ADMIN_IDS || '').split(',').map(s => Number(s.trim())).filter(Boolean);
+const ANTHROPIC_KEY     = process.env.ANTHROPIC_API_KEY || '';
+const AI_AUTO_APPROVE   = (process.env.AI_AUTO_APPROVE  || 'true') === 'true';
+const TARGET_KG_DEFAULT = Number(process.env.TARGET_KG_DEFAULT) || 5000;
+const CHANNEL_ID        = (process.env.CHANNEL_ID || '').trim();
 // ══════════════════════════════════════════════
 const REG_PER_KG        = 10;
 const SHIP_PER_KG       = 25;
