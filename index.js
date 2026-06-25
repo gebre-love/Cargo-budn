@@ -105,7 +105,7 @@ const RouteCap = mongoose.model('RouteCap', new mongoose.Schema({
   notified: { type: Boolean, default: false },
 }));
 
-/* ── BotSettings (registration on/off + other global flags) ── */
+/* ── BotSettings (registration on/off, cargo on/off + other global flags) ── */
 const BotSettings = mongoose.model('BotSettings', new mongoose.Schema({
   key:   { type: String, unique: true },
   value: { type: mongoose.Schema.Types.Mixed, default: null },
@@ -217,6 +217,7 @@ function capLine(total, target) {
    ──────────────────────────────────────────────────────────── */
 async function adminPanelKb() {
   const regOpen = await getSetting('registration_open', true);
+  const cargoOn = await getSetting('cargo_enabled', true);
   return Markup.inlineKeyboard([
     [Markup.button.callback('አዲስ አበባ → አማራ ክልል ምዝገቦች', 'lst_dir_toamhara')],
     [Markup.button.callback('አማራ ክልል → አዲስ አበባ ምዝገቦች',  'lst_dir_toaa')],
@@ -230,16 +231,23 @@ async function adminPanelKb() {
       regOpen ? '🔴 ምዝገባ አጥፋ  (አሁን ክፍት ነው)' : '🟢 ምዝገባ ክፈት  (አሁን ተዘግቷል)',
       'toggle_registration'
     )],
+    [Markup.button.callback(
+      cargoOn ? '🔴 ዋናው አገልግሎት አጥፋ (ጭነት)' : '🟢 ዋናው አገልግሎት ክፈት (ጭነት)',
+      'toggle_cargo'
+    )],
     [Markup.button.callback('📣 Group Buying ማስተዋወቅ', 'gb_invite_panel')],
   ]);
 }
 
 /* ────────────────────────────────────────────────────────────
    ዋና Keyboard
+   cargoOn === false ⇒ cargo-related buttons ይደበቃሉ፣ Group Buying ብቻ ይታያል
    ──────────────────────────────────────────────────────────── */
-const mainKb = () => Markup.keyboard([
-  ['🔼 አዲስ አበባ → አማራ ክልል', '🔽 አማራ ክልል → አዲስ አበባ'],
-  ['📋 የምዝገባ ዝርዝሬ', '📊 የጭነት ቆጣሪ'],
+const mainKb = (cargoOn = true) => Markup.keyboard([
+  ...(cargoOn ? [
+    ['🔼 አዲስ አበባ → አማራ ክልል', '🔽 አማራ ክልል → አዲስ አበባ'],
+    ['📋 የምዝገባ ዝርዝሬ', '📊 የጭነት ቆጣሪ'],
+  ] : []),
   ['🛒 የቡድን ግዥ'],
   ...(ADMIN_IDS.length ? [['🔧 Admin']] : []),
 ]).resize();
@@ -640,9 +648,32 @@ bot.catch((err, ctx) => console.error('Bot error:', err?.message, ctx?.updateTyp
 
 /* ────────────────────────────────────────────────────────────
    13. /start — WELCOME
+   cargoOn === false ⇒ ጽሁፉ Group Buying ብቻ የተመለከተ ይሆናል
    ──────────────────────────────────────────────────────────── */
 
-function welcomeText(name) {
+function welcomeText(name, cargoOn = true) {
+  if (!cargoOn) {
+    return (
+      `*እንኳን ደህና መጡ, ${name}!*\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `*🛒 የቡድን ግዥ (Group Buying)*\n\n` +
+      `ጤፍ፣ ዘይት፣ ስኳር፣ ዱቄት እና ሌሎች ምርቶችን\n` +
+      `*ከብዙ ሰዎች ጋር በጋራ* በርካሽ ዋጋ ይግዙ!\n\n` +
+      `*ጥቅሞቹ:*\n` +
+      `• ከገበያ ዋጋ ያነሰ — ትልቅ ትዕዛዝ = ርካሽ ዋጋ\n` +
+      `• ደህንነቱ የተጠበቀ — ቅድሚያ ክፍያ ሳያስፈልግ\n` +
+      `• ሁሉም አካባቢ ይደርሳል\n\n` +
+      `*እንዴት ይሰራል?*\n` +
+      `1) ጥያቄ ያስገቡ — ምን ዓይነት ምርት ምን ያህል?\n` +
+      `2) ሌሎች ተሳታፊዎች ሲሰባሰቡ ዋጋ ይቀንሳል\n` +
+      `3) ጋራ ዋጋ ሲደርስ ትዕዛዝ ይቆረጣል\n` +
+      `4) ዕቃው ቤትዎ ድረስ ይደርሳል\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `"🛒 የቡድን ግዥ" የሚለውን ቁልፍ ይጫኑ\n\n` +
+      `ለጥያቄ: ${SUPPORT_PHONE}`
+    );
+  }
+
   return (
     `*እንኳን ደህና መጡ, ${name}!*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -676,14 +707,16 @@ function welcomeText(name) {
 
 bot.start(async ctx => {
   ctx.session = {};
+  const cargoOn = await getSetting('cargo_enabled', true);
   const name = ctx.from?.first_name || 'እንኳን ደህና መጡ';
-  await ctx.reply(welcomeText(name), { parse_mode: 'Markdown', ...mainKb() });
+  await ctx.reply(welcomeText(name, cargoOn), { parse_mode: 'Markdown', ...mainKb(cargoOn) });
 });
 
 bot.command('help', async ctx => {
   ctx.session = {};
+  const cargoOn = await getSetting('cargo_enabled', true);
   const name = ctx.from?.first_name || 'እንኳን ደህና መጡ';
-  await ctx.reply(welcomeText(name), { parse_mode: 'Markdown', ...mainKb() });
+  await ctx.reply(welcomeText(name, cargoOn), { parse_mode: 'Markdown', ...mainKb(cargoOn) });
 });
 
 /* ────────────────────────────────────────────────────────────
@@ -691,6 +724,9 @@ bot.command('help', async ctx => {
    ──────────────────────────────────────────────────────────── */
 
 bot.hears('📊 የጭነት ቆጣሪ', async ctx => {
+  const cargoOn = await getSetting('cargo_enabled', true);
+  if (!cargoOn) return ctx.reply('ይህ አገልግሎት ለጊዜው ዝግ ነው። "🛒 የቡድን ግዥ" ይጠቀሙ።', mainKb(false));
+
   ctx.session = {};
 
   let txt = '*የጭነት ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n';
@@ -705,13 +741,16 @@ bot.hears('📊 የጭነት ቆጣሪ', async ctx => {
     txt += `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n\n`;
   }
 
-  await ctx.reply(txt, { parse_mode: 'Markdown', ...mainKb() });
+  await ctx.reply(txt, { parse_mode: 'Markdown', ...mainKb(cargoOn) });
 });
 
 bot.hears('📋 የምዝገባ ዝርዝሬ', async ctx => {
+  const cargoOn = await getSetting('cargo_enabled', true);
+  if (!cargoOn) return ctx.reply('ይህ አገልግሎት ለጊዜው ዝግ ነው። "🛒 የቡድን ግዥ" ይጠቀሙ።', mainKb(false));
+
   ctx.session = {};
   const list = await Reg.find({ userId: ctx.from.id, status: { $nin: ['rejected'] } }).sort({ createdAt: -1 }).lean();
-  if (!list.length) return ctx.reply('ምዝገባ የለዎትም። አቅጣጫ ይምረጡ', mainKb());
+  if (!list.length) return ctx.reply('ምዝገባ የለዎትም። አቅጣጫ ይምረጡ', mainKb(cargoOn));
 
   for (const r of list) {
     const btns = [];
@@ -735,6 +774,7 @@ bot.action(/^addloc_([a-f\d]{24})$/i, async ctx => {
 
 bot.hears('🛒 የቡድን ግዥ', async ctx => {
   ctx.session = {};
+  const cargoOn = await getSetting('cargo_enabled', true);
 
   const linkLine = GROUP_BUY_LINK
     ? `\nለምዝገባ: ${GROUP_BUY_LINK}`
@@ -755,7 +795,7 @@ bot.hears('🛒 የቡድን ግዥ', async ctx => {
     `• ደህንነቱ የተጠበቀ — ቅድሚያ ክፍያ ሳያስፈልግ\n` +
     `• ሁሉም አካባቢ ይደርሳል\n\n` +
     `${linkLine}`,
-    { parse_mode: 'Markdown', ...mainKb() }
+    { parse_mode: 'Markdown', ...mainKb(cargoOn) }
   );
 });
 
@@ -764,6 +804,13 @@ bot.hears('🛒 የቡድን ግዥ', async ctx => {
    ──────────────────────────────────────────────────────────── */
 
 async function startRegistration(ctx, route) {
+  // ── Cargo service ON/OFF check (master switch) ─────────────
+  const cargoOn = await getSetting('cargo_enabled', true);
+  if (!cargoOn) {
+    return ctx.reply('ይህ አገልግሎት ለጊዜው ዝግ ነው። "🛒 የቡድን ግዥ" ይጠቀሙ።', mainKb(false));
+  }
+  // ────────────────────────────────────────────────────────────
+
   // ── Registration ON/OFF check ──────────────────────────────
   const regOpen = await getSetting('registration_open', true);
   if (!regOpen) {
@@ -771,7 +818,7 @@ async function startRegistration(ctx, route) {
       '⏸️ *ምዝገባ ለጊዜው ተቋርጧል*\n\n' +
       'አስተዳዳሪዎቻችን ምዝገባ ሲከፍቱ ይነገርዎታል።\n\n' +
       `ለጥያቄ: ${SUPPORT_PHONE}`,
-      { parse_mode: 'Markdown', ...mainKb() }
+      { parse_mode: 'Markdown', ...mainKb(cargoOn) }
     );
   }
   // ────────────────────────────────────────────────────────────
@@ -784,15 +831,21 @@ async function startRegistration(ctx, route) {
     return ctx.reply(card(ex) + '\n\n_ቀደም ሲል ተመዝግበዋል_', { parse_mode: 'Markdown', ...Markup.inlineKeyboard([btns]) });
   }
   ctx.session = { step: 'NAME', routeId: route.id, d: {} };
-  await ctx.reply(`${route.emoji} *${route.label}*\n\nሙሉ ስምዎን ያስገቡ:`, { parse_mode: 'Markdown', ...mainKb() });
+  await ctx.reply(`${route.emoji} *${route.label}*\n\nሙሉ ስምዎን ያስገቡ:`, { parse_mode: 'Markdown', ...mainKb(cargoOn) });
 }
 
 bot.hears('🔼 አዲስ አበባ → አማራ ክልል', async ctx => {
+  const cargoOn = await getSetting('cargo_enabled', true);
+  if (!cargoOn) return ctx.reply('ይህ አገልግሎት ለጊዜው ዝግ ነው። "🛒 የቡድን ግዥ" ይጠቀሙ።', mainKb(false));
+
   ctx.session = {};
   await ctx.reply('*አዲስ አበባ → አማራ ክልል* — መስመር ይምረጡ:', { parse_mode: 'Markdown', ...dirRoutesKb(ROUTES_TO_AMHARA) });
 });
 
 bot.hears('🔽 አማራ ክልል → አዲስ አበባ', async ctx => {
+  const cargoOn = await getSetting('cargo_enabled', true);
+  if (!cargoOn) return ctx.reply('ይህ አገልግሎት ለጊዜው ዝግ ነው። "🛒 የቡድን ግዥ" ይጠቀሙ።', mainKb(false));
+
   ctx.session = {};
   await ctx.reply('*አማራ ክልል → አዲስ አበባ* — መስመር ይምረጡ:', { parse_mode: 'Markdown', ...dirRoutesKb(ROUTES_TO_AA) });
 });
@@ -806,10 +859,13 @@ bot.action(/^goto_(.+)$/, async ctx => {
 
 bot.action(/^more_(.+)$/, async ctx => {
   await ctx.answerCbQuery().catch(() => {});
+  const cargoOn = await getSetting('cargo_enabled', true);
+  if (!cargoOn) return ctx.reply('ይህ አገልግሎት ለጊዜው ዝግ ነው። "🛒 የቡድን ግዥ" ይጠቀሙ።', mainKb(false));
+
   const route = byRoute(ctx.match[1]);
   if (!route) return;
   ctx.session = { step: 'NAME', routeId: route.id, d: {} };
-  await ctx.reply(`${route.emoji} *${route.label}* — ሌላ እቃ ጨምር\n\nሙሉ ስምዎን ያስገቡ:`, { parse_mode: 'Markdown', ...mainKb() });
+  await ctx.reply(`${route.emoji} *${route.label}* — ሌላ እቃ ጨምር\n\nሙሉ ስምዎን ያስገቡ:`, { parse_mode: 'Markdown', ...mainKb(cargoOn) });
 });
 
 /* ────────────────────────────────────────────────────────────
@@ -1178,6 +1234,27 @@ bot.action('toggle_registration', async ctx => {
   );
 
   // Updated panel with new toggle label
+  await ctx.reply('*የአስተዳዳሪ ፓነል* (ተዘምኗል)', { parse_mode: 'Markdown', ...(await adminPanelKb()) });
+});
+
+/* ── Admin: Cargo service (master) ON/OFF toggle ──
+   ሲዘጋ: ዋናው ጭነት ፍሎው ሙሉ በሙሉ ይጠፋል (mainKb, /start text)
+         ደንበኞች "🛒 የቡድን ግዥ" ብቻ ያያሉ ── */
+bot.action('toggle_cargo', async ctx => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+
+  const current = await getSetting('cargo_enabled', true);
+  const next = !current;
+  await setSetting('cargo_enabled', next);
+
+  await ctx.reply(
+    next
+      ? '🟢 *ዋናው አገልግሎት ተከፈተ!*\n\nደንበኞች የጭነት አገልግሎቱን አሁን መጠቀም ይችላሉ።'
+      : '🔴 *ዋናው አገልግሎት ተዘጋ!*\n\nደንበኞች "🛒 የቡድን ግዥ" ብቻ ያያሉ — የጭነት ቁልፎች ይደበቃሉ።',
+    { parse_mode: 'Markdown' }
+  );
+
   await ctx.reply('*የአስተዳዳሪ ፓነል* (ተዘምኗል)', { parse_mode: 'Markdown', ...(await adminPanelKb()) });
 });
 
