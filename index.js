@@ -105,6 +105,25 @@ const RouteCap = mongoose.model('RouteCap', new mongoose.Schema({
   notified: { type: Boolean, default: false },
 }));
 
+/* ── BotSettings (registration on/off + other global flags) ── */
+const BotSettings = mongoose.model('BotSettings', new mongoose.Schema({
+  key:   { type: String, unique: true },
+  value: { type: mongoose.Schema.Types.Mixed, default: null },
+}));
+
+async function getSetting(key, def = null) {
+  try {
+    const doc = await BotSettings.findOne({ key }).lean();
+    return doc !== null && doc !== undefined ? doc.value : def;
+  } catch {
+    return def;
+  }
+}
+
+async function setSetting(key, value) {
+  await BotSettings.findOneAndUpdate({ key }, { value }, { upsert: true });
+}
+
 /* ────────────────────────────────────────────────────────────
    4. SESSION MIDDLEWARE (Mongo-backed, per chat+user)
    ──────────────────────────────────────────────────────────── */
@@ -194,7 +213,29 @@ function capLine(total, target) {
 }
 
 /* ────────────────────────────────────────────────────────────
-   ዋና Keyboard — ሁሉም ቁልፎች ግልፅ አማርኛ
+   Admin panel keyboard builder (reusable — shows live toggle state)
+   ──────────────────────────────────────────────────────────── */
+async function adminPanelKb() {
+  const regOpen = await getSetting('registration_open', true);
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('አዲስ አበባ → አማራ ክልል ምዝገቦች', 'lst_dir_toamhara')],
+    [Markup.button.callback('አማራ ክልል → አዲስ አበባ ምዝገቦች',  'lst_dir_toaa')],
+    [Markup.button.callback('ያልተፈቀዱ ክፍያዎች',               'lst_pay')],
+    [Markup.button.callback('ጭነት ሰብሳቢ (አቅራቢያ ዝርዝር)',      'col_pick')],
+    [Markup.button.callback('ጭነት ላክ (ለደንበኞች ማሳወቂያ)',      'snd_pick')],
+    [Markup.button.callback('የጭነት ሪፖርት',                   'admin_report')],
+    [Markup.button.callback('ቻናል ማስታወቂያ',                  'channel_panel')],
+    [Markup.button.callback('ዝርዝር አትም (Print Manifest)',    'print_pick')],
+    [Markup.button.callback(
+      regOpen ? '🔴 ምዝገባ አጥፋ  (አሁን ክፍት ነው)' : '🟢 ምዝገባ ክፈት  (አሁን ተዘግቷል)',
+      'toggle_registration'
+    )],
+    [Markup.button.callback('📣 Group Buying ማስተዋወቅ', 'gb_invite_panel')],
+  ]);
+}
+
+/* ────────────────────────────────────────────────────────────
+   ዋና Keyboard
    ──────────────────────────────────────────────────────────── */
 const mainKb = () => Markup.keyboard([
   ['🔼 አዲስ አበባ → አማራ ክልል', '🔽 አማራ ክልል → አዲስ አበባ'],
@@ -218,7 +259,7 @@ const approveKb = id => Markup.inlineKeyboard([[
 ]]);
 
 /* ────────────────────────────────────────────────────────────
-   7. CAPACITY TRACKING (per-route kg target + notifications)
+   7. CAPACITY TRACKING
    ──────────────────────────────────────────────────────────── */
 
 async function routeWeight(routeId) {
@@ -264,7 +305,7 @@ async function checkCapacity(routeId) {
 }
 
 /* ────────────────────────────────────────────────────────────
-   8. AI PAYMENT VERIFICATION (Claude vision check on receipt photo)
+   8. AI PAYMENT VERIFICATION
    ──────────────────────────────────────────────────────────── */
 
 async function checkPayment(fileId, reg) {
@@ -307,6 +348,32 @@ const aiOk = r => r?.amount_match && r?.account_match && !r?.looks_edited && r?.
 const aiSummary = r => !r
   ? 'AI ማረጋገጫ አልተሳካም'
   : `AI: ${aiOk(r) ? 'ተረጋግጧል' : r?.looks_edited ? 'ሊስተካከል ይችላል' : 'አልተረጋገጠም'} (${r.confidence}) ${r.reason || ''}`;
+
+/* ────────────────────────────────────────────────────────────
+   9. GROUP BUYING INVITE HELPERS
+   ──────────────────────────────────────────────────────────── */
+
+async function buildGBMessage(botLink, groupLink) {
+  return (
+    `*🛒 የቡድን ግዥ (Group Buying) — ይቀላቀሉ!*\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `ጤፍ፣ ዘይት፣ ስኳር፣ ዱቄት — ከብዙ ሰዎች ጋር\n` +
+    `*በጋራ በርካሽ ዋጋ* ይግዙ!\n\n` +
+    (botLink   ? `🤖 ቦቱን ለመጠቀም: ${botLink}\n`    : '') +
+    (groupLink ? `👥 ቡድናችን ይቀላቀሉ: ${groupLink}\n` : '') +
+    `\nለጥያቄ: ${SUPPORT_PHONE}`
+  );
+}
+
+async function broadcastGB(msg) {
+  const users = await Reg.distinct('userId', { status: { $nin: ['rejected'] } });
+  let sent = 0;
+  for (const uid of users) {
+    try { await bot.telegram.sendMessage(uid, msg, { parse_mode: 'Markdown' }); sent++; } catch {}
+    await new Promise(r => setTimeout(r, 50));
+  }
+  return sent;
+}
 
 /* ────────────────────────────────────────────────────────────
    10. PRINTABLE MANIFEST (HTML)
@@ -504,7 +571,7 @@ async function handlePrint(ctx, routeId) {
 }
 
 /* ────────────────────────────────────────────────────────────
-   11. DAILY REPORT (scheduled summary to admins) — ኢሞጂ አልባ
+   11. DAILY REPORT
    ──────────────────────────────────────────────────────────── */
 
 async function sendDailyReport() {
@@ -572,7 +639,7 @@ bot.use(async (ctx, next) => {
 bot.catch((err, ctx) => console.error('Bot error:', err?.message, ctx?.updateType));
 
 /* ────────────────────────────────────────────────────────────
-   13. /start — WELCOME (የቡድን ግዥ ክፍል ተጨምሯል)
+   13. /start — WELCOME
    ──────────────────────────────────────────────────────────── */
 
 function welcomeText(name) {
@@ -620,7 +687,7 @@ bot.command('help', async ctx => {
 });
 
 /* ────────────────────────────────────────────────────────────
-   14. ቆጣሪ / ምዝገባዬ (status & "my registrations" views)
+   14. ቆጣሪ / ምዝገባዬ
    ──────────────────────────────────────────────────────────── */
 
 bot.hears('📊 የጭነት ቆጣሪ', async ctx => {
@@ -663,7 +730,7 @@ bot.action(/^addloc_([a-f\d]{24})$/i, async ctx => {
 });
 
 /* ────────────────────────────────────────────────────────────
-   14b. የቡድን ግዥ — Group Buying
+   14b. የቡድን ግዥ — Group Buying (user-facing)
    ──────────────────────────────────────────────────────────── */
 
 bot.hears('🛒 የቡድን ግዥ', async ctx => {
@@ -697,6 +764,18 @@ bot.hears('🛒 የቡድን ግዥ', async ctx => {
    ──────────────────────────────────────────────────────────── */
 
 async function startRegistration(ctx, route) {
+  // ── Registration ON/OFF check ──────────────────────────────
+  const regOpen = await getSetting('registration_open', true);
+  if (!regOpen) {
+    return ctx.reply(
+      '⏸️ *ምዝገባ ለጊዜው ተቋርጧል*\n\n' +
+      'አስተዳዳሪዎቻችን ምዝገባ ሲከፍቱ ይነገርዎታል።\n\n' +
+      `ለጥያቄ: ${SUPPORT_PHONE}`,
+      { parse_mode: 'Markdown', ...mainKb() }
+    );
+  }
+  // ────────────────────────────────────────────────────────────
+
   const ex = await Reg.findOne({ userId: ctx.from.id, routeId: route.id, status: { $nin: ['rejected', 'sent'] } }).lean();
   if (ex) {
     const btns = [Markup.button.callback('ሰርዝ', `del_${ex._id}`)];
@@ -768,7 +847,7 @@ bot.action(/^pm_(.+)$/, async ctx => {
 });
 
 /* ────────────────────────────────────────────────────────────
-   17. TEXT-DRIVEN REGISTRATION FLOW (multi-step session)
+   17. TEXT-DRIVEN REGISTRATION FLOW
    ──────────────────────────────────────────────────────────── */
 
 bot.on('text', async (ctx, next) => {
@@ -974,22 +1053,13 @@ bot.on('photo', async ctx => {
 });
 
 /* ────────────────────────────────────────────────────────────
-   20. ADMIN PANEL — ሁሉም ቁልፎች ግልፅ አማርኛ
+   20. ADMIN PANEL
    ──────────────────────────────────────────────────────────── */
 
 bot.hears('🔧 Admin', async ctx => {
   if (!isAdmin(ctx)) return ctx.reply('ፈቃድ የለዎትም');
   ctx.session = {};
-  await ctx.reply('*የአስተዳዳሪ ፓነል*', { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
-    [Markup.button.callback('አዲስ አበባ → አማራ ክልል ምዝገቦች', 'lst_dir_toamhara')],
-    [Markup.button.callback('አማራ ክልል → አዲስ አበባ ምዝገቦች',  'lst_dir_toaa')],
-    [Markup.button.callback('ያልተፈቀዱ ክፍያዎች',               'lst_pay')],
-    [Markup.button.callback('ጭነት ሰብሳቢ (አቅራቢያ ዝርዝር)',      'col_pick')],
-    [Markup.button.callback('ጭነት ላክ (ለደንበኞች ማሳወቂያ)',      'snd_pick')],
-    [Markup.button.callback('የጭነት ሪፖርት',                   'admin_report')],
-    [Markup.button.callback('ቻናል ማስታወቂያ',                  'channel_panel')],
-    [Markup.button.callback('ዝርዝር አትም (Print Manifest)',    'print_pick')],
-  ]) });
+  await ctx.reply('*የአስተዳዳሪ ፓነል*', { parse_mode: 'Markdown', ...(await adminPanelKb()) });
 });
 
 bot.action('lst_dir_toamhara', async ctx => {
@@ -1051,7 +1121,7 @@ bot.action(/^lst_(.+)$/, async ctx => {
   }
 });
 
-/* ── Status change helper (approve/reject) ── */
+/* ── Status change helper ── */
 async function setStatus(ctx, id, newStatus, notifyFn) {
   const r = await Reg.findByIdAndUpdate(id, { status: newStatus }, { new: true });
   if (!r) return;
@@ -1091,6 +1161,112 @@ bot.action(/^del_([a-f\d]{24})$/i, async ctx => {
   await ctx.reply('ምዝገባ ተሰርዟል. ለመመዝገብ አቅጣጫ ይምረጡ', mainKb());
 });
 
+/* ── Admin: Registration ON/OFF toggle ── */
+bot.action('toggle_registration', async ctx => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+
+  const current = await getSetting('registration_open', true);
+  const next    = !current;
+  await setSetting('registration_open', next);
+
+  await ctx.reply(
+    next
+      ? '🟢 *ምዝገባ ተከፈተ!*\n\nደንበኞች አሁን መመዝገብ ይችላሉ።'
+      : '🔴 *ምዝገባ ተዘጋ!*\n\nደንበኞች ሲሞክሩ "ምዝገባ ለጊዜው ተቋርጧል" ይነገራቸዋል።',
+    { parse_mode: 'Markdown' }
+  );
+
+  // Updated panel with new toggle label
+  await ctx.reply('*የአስተዳዳሪ ፓነል* (ተዘምኗል)', { parse_mode: 'Markdown', ...(await adminPanelKb()) });
+});
+
+/* ── Admin: Group Buying invite panel ── */
+bot.action('gb_invite_panel', async ctx => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+
+  await ctx.reply(
+    '*📣 Group Buying ማስተዋወቅ*\n\nምን ይላክ?',
+    { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
+      [Markup.button.callback('🤖 Bot link ብቻ',                'gb_send_bot')],
+      [Markup.button.callback('👥 Group invite link ብቻ',       'gb_send_group')],
+      [Markup.button.callback('📢 Channel post ብቻ',            'gb_send_channel')],
+      [Markup.button.callback('📣 ሁሉም (Bot + Group + Channel)', 'gb_send_all')],
+    ])
+  });
+});
+
+bot.action('gb_send_bot', async ctx => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+
+  const botInfo = await bot.telegram.getMe();
+  const botLink = `https://t.me/${botInfo.username}`;
+  const msg     = await buildGBMessage(botLink, null);
+
+  await ctx.reply('ለሁሉም ተጠቃሚዎች እየተላከ ነው...');
+  const sent = await broadcastGB(msg);
+  await ctx.reply(`🤖 *Bot link ተልኳል*\n${sent} ሰው ደርሷቸዋል`, { parse_mode: 'Markdown' });
+});
+
+bot.action('gb_send_group', async ctx => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+
+  if (!GROUP_BUY_LINK) return ctx.reply('⚠️ GROUP_BUY_LINK env variable አልተቀመጠም\n\nRender ውስጥ ያስገቡ');
+
+  const msg = await buildGBMessage(null, GROUP_BUY_LINK);
+  await ctx.reply('ለሁሉም ተጠቃሚዎች እየተላከ ነው...');
+  const sent = await broadcastGB(msg);
+  await ctx.reply(`👥 *Group invite ተልኳል*\n${sent} ሰው ደርሷቸዋል`, { parse_mode: 'Markdown' });
+});
+
+bot.action('gb_send_channel', async ctx => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+
+  if (!CHANNEL_ID) return ctx.reply('⚠️ CHANNEL_ID env variable አልተቀመጠም');
+
+  const botInfo = await bot.telegram.getMe();
+  const botLink = `https://t.me/${botInfo.username}`;
+  const msg     = await buildGBMessage(botLink, GROUP_BUY_LINK || null);
+
+  try {
+    await bot.telegram.sendMessage(CHANNEL_ID, msg, { parse_mode: 'Markdown' });
+    await ctx.reply('📢 *Channel post ተልኳል*', { parse_mode: 'Markdown' });
+  } catch (e) {
+    await ctx.reply(`❌ አልተሳካም: ${e.message}`);
+  }
+});
+
+bot.action('gb_send_all', async ctx => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+
+  const botInfo = await bot.telegram.getMe();
+  const botLink = `https://t.me/${botInfo.username}`;
+  const msg     = await buildGBMessage(botLink, GROUP_BUY_LINK || null);
+
+  await ctx.reply('ለሁሉም እየተላከ ነው — ትንሽ ይጠብቁ...');
+
+  // 1) ሁሉም ተጠቃሚዎች (bot link + group link)
+  const sent = await broadcastGB(msg);
+
+  // 2) Channel
+  let chOk = false;
+  if (CHANNEL_ID) {
+    try { await bot.telegram.sendMessage(CHANNEL_ID, msg, { parse_mode: 'Markdown' }); chOk = true; } catch {}
+  }
+
+  await ctx.reply(
+    `📣 *Group Buying ማስተዋወቅ ተጠናቀቀ*\n\n` +
+    `👥 ለተጠቃሚዎች: ${sent} ሰው\n` +
+    `📢 Channel: ${chOk ? 'ተልኳል ✅' : CHANNEL_ID ? 'አልተሳካም ❌' : 'CHANNEL_ID የለም —'}`,
+    { parse_mode: 'Markdown' }
+  );
+});
+
 /* ── Admin: "send shipment" flow ── */
 bot.action('snd_pick', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
@@ -1127,7 +1303,7 @@ bot.action(/^snd_(.+)$/, async ctx => {
   await ctx.reply(`${ro.label} | ${ready.length} ሰው | ${total} ኪሎ\n\nለደንበኞች ማስታወሻ ያስገቡ:`);
 });
 
-/* ── Admin: route report — ኢሞጂ አልባ ── */
+/* ── Admin: route report ── */
 bot.action('admin_report', async ctx => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery('ፈቃድ የለዎትም').catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
@@ -1358,7 +1534,7 @@ bot.command('broadcast', async ctx => {
 });
 
 /* ────────────────────────────────────────────────────────────
-   21. LAUNCH — DB connect, health server, keep-alive, polling
+   21. LAUNCH
    ──────────────────────────────────────────────────────────── */
 
 const PORT = Number(process.env.PORT) || 3000;
