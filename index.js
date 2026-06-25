@@ -19,7 +19,7 @@ const TARGET_KG_DEFAULT = Number(process.env.TARGET_KG_DEFAULT) || 5000;
 const CHANNEL_ID = (process.env.CHANNEL_ID || "").trim();
 const GROUP_ID   = (process.env.GROUP_ID   || "").trim();
 
-let REG_PER_KG = 10;
+let REG_PER_KG = 5;
 let SHIP_PER_KG = 25;
 
 if (!BOT_TOKEN || !MONGO_URI) {
@@ -854,13 +854,15 @@ function welcomeText(name) {
   return (
     `*እንኳን ደህና መጡ, ${name}!* 🎉\n` +
     `━━━━━━━━━━━━━━━━━━━━\n\n` +
-    `*🚚 አገልግሎታችን*\n` +
-    `ቀጥታ ከ *ገበሬዎች* እና ከ *ፋብሪካዎች* — ርካሽ ምርቶች!\n\n` +
+    `*📢 ለምን ከኛ ጋር?*\n\n` +
+    `✅ *የኑሮ ዉድነትን ይቀንሳል* — ቀጥታ ከ ምንጭ, ያለ ነጋዴ ትርፍ!\n` +
+    `✅ *የሚጠቅምዎት ዋጋ* — ነጋዴዎች የሚጨምሩትን ዋጋ ያስወግዳል\n` +
+    `✅ *ስርዓት ያለው አገልግሎት* — ዉድነቱን አያባብስም, ይቀንሳል!\n` +
+    `✅ *ቤትዎ ድረስ* — ሰብስቦ ያደርሳል, ምንም ድካም የለዎትም\n\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `*💰 የሚከፈለው ክፍያ ብቻ:*\n\n` +
-    `📋 *የምዝገባ (አገልግሎት) ክፍያ:* ${REG_PER_KG} ብር/ኪሎ\n` +
-    `🚚 *የትራንስፖርት ክፍያ:* ${SHIP_PER_KG} ብር/ኪሎ\n\n` +
-    `_ሌላ ክፍያ የለም — ትንሽ አገልግሎት ክፍያ እና ትራንስፖርት ብቻ!_\n\n` +
+    `*💰 የምዝገባ (አገልግሎት) ክፍያ:*\n\n` +
+    `📋 *${REG_PER_KG} ብር/ኪሎ ብቻ!*\n` +
+    `_ሌሎቹ ክፍያዎች ዕቃ ሲወጣ በሌላ መንገድ ይስተካከላሉ_\n\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `*እንዴት ይሰራል?*\n` +
     `1️⃣ አቅጣጫ ወይም ምርት ከዚህ ይምረጡ\n` +
@@ -957,6 +959,28 @@ for (const prod of GB_PRODUCTS) {
       );
     }
 
+    // አንድ ምዝገባ ብቻ — ቀደም ብሎ ምዝገባ ካለ ኪሎ የሚጨምሩበት አማራጭ ያቀርባል
+    const exGb = await GBReg.findOne({ userId: ctx.from.id }).lean();
+    if (exGb) {
+      const exProd = byProduct(exGb.productId);
+      const exUl = exProd ? unitLabel(exProd) : "ኪሎ";
+      const alreadySameProd = exGb.productId === prod.id;
+      const btns = [];
+      if (alreadySameProd) {
+        btns.push([Markup.button.callback("➕ ኪሎ ጨምር (ዋጋ ልዩነት ብቻ ይከፈላል)", `gb_addkg_${exGb._id}`)]);
+      }
+      return ctx.reply(
+        `ℹ️ *ቀደም ሲል ተመዝግበዋል*\n\n` +
+          `${exProd?.emoji || "📦"} *${exProd?.label || exGb.productId}*\n` +
+          `👤 ${exGb.fullName}  |  📞 ${exGb.phone}\n` +
+          `⚖️ ${exGb.weightKg} ${exUl}\n\n` +
+          (alreadySameProd
+            ? `_ኪሎ ለመጨምር ከዚህ በታች ይጫኑ — የቀረውን ልዩነት ብቻ ይከፍላሉ_`
+            : `_ሌላ ምርት ለመምረጥ ቀደሙን ሰርዘው ይሞክሩ (📋 የምዝገባ ዝርዝሬ)_`),
+        { parse_mode: "Markdown", ...Markup.inlineKeyboard(btns) },
+      );
+    }
+
     ctx.session = { step: "GB_NAME", gbProductId: prod.id };
     const agg = await GBReg.aggregate([
       { $match: { productId: prod.id } },
@@ -982,20 +1006,23 @@ for (const prod of GB_PRODUCTS) {
 
 /* ─── 17. ROUTE SELECTION ───────────────────────────────── */
 async function startRegistration(ctx, route) {
+  // አንድ ምዝገባ ብቻ — በማንኛውም መስመር ላይ ነቅ ምዝገባ ካለ ሌላ አይፈቀድም
   const ex = await Reg.findOne({
     userId: ctx.from.id,
-    routeId: route.id,
     status: { $nin: ["rejected", "sent"] },
   }).lean();
   if (ex) {
+    const ro = byRoute(ex.routeId);
     const btns = [Markup.button.callback("ሰርዝ", `del_${ex._id}`)];
     if (!ex.locationLat)
       btns.push(Markup.button.callback("አድራሻ ላክ", `addloc_${ex._id}`));
-    btns.push(Markup.button.callback("ሌላ እቃ ጨምር", `more_${route.id}`));
-    return ctx.reply(card(ex) + "\n\n_ቀደም ሲል ተመዝግበዋል_", {
-      parse_mode: "Markdown",
-      ...Markup.inlineKeyboard([btns]),
-    });
+    return ctx.reply(
+      `⚠️ _አንድ ምዝገባ ብቻ ይፈቀዳል_\n\n` + card(ex) + `\n\n_ሌላ ለመመዝገብ ቀደሙን ሰርዘው ይሞክሩ_`,
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([btns]),
+      }
+    );
   }
   ctx.session = { step: "NAME", routeId: route.id, d: {} };
   await ctx.reply(`${route.emoji} *${route.label}*\n\nሙሉ ስምዎን ያስገቡ:`, {
@@ -1167,8 +1194,77 @@ bot.on("text", async (ctx, next) => {
   }
 
   if (step === "GB_CONFIRM") {
-    // User typed instead of pressing button
     return ctx.reply("ከዚህ በታች ያሉትን ቁልፎች ይጠቀሙ 👆");
+  }
+
+  if (step === "GB_ADDKG") {
+    const newTotal = parseFloat(txt.replace(/[^0-9.]/g, ""));
+    const { gbAddId, gbAddOldKg, gbAddProductId } = ctx.session;
+    const prod = byProduct(gbAddProductId);
+    const ul = unitLabel(prod);
+    if (!newTotal || newTotal <= 0 || newTotal > 5000)
+      return ctx.reply("ትክክለኛ ቁጥር ያስገቡ (1–5000)");
+    if (newTotal <= gbAddOldKg)
+      return ctx.reply(
+        `⚠️ አሁን *${gbAddOldKg} ${ul}* ተመዝግበዋል — ከዚህ የሚበልጥ ቁጥር ያስገቡ\n_(ለምሳሌ ${gbAddOldKg + 5})_`,
+        { parse_mode: "Markdown" }
+      );
+    const diffKg = newTotal - gbAddOldKg;
+    const diffFee = Math.round(diffKg * REG_PER_KG);
+    ctx.session.gbAddNewKg = newTotal;
+    ctx.session.gbAddDiffKg = diffKg;
+    ctx.session.gbAddDiffFee = diffFee;
+    ctx.session.step = "GB_ADDKG_CONFIRM";
+    return ctx.reply(
+      `📋 *ኪሎ ማሻሻያ ማረጋገጫ*\n━━━━━━━━━━━━━━━━\n` +
+        `${prod?.emoji} *${prod?.label}*\n` +
+        `ቀድሞ: *${gbAddOldKg} ${ul}*  →  አዲስ: *${newTotal} ${ul}*\n\n` +
+        `➕ ጭማሪ: ${diffKg} ${ul}\n` +
+        `💳 *የሚከፈለው: ${diffFee} ብር* (${diffKg} ${ul} × ${REG_PER_KG} ብር)\n\n` +
+        `ያረጋግጡ?`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✅ አረጋግጥ", callback_data: "gb_addkg_confirm" },
+              { text: "❌ ሰርዝ", callback_data: "gb_addkg_cancel" },
+            ],
+          ],
+        },
+      }
+    );
+  }
+
+  if (step === "GB_ADDKG_CONFIRM") {
+    return ctx.reply("ከዚህ በታች ያሉትን ቁልፎች ይጠቀሙ 👆");
+  }
+
+  if (step === "ADMIN_PRICE") {
+    const price = parseFloat(txt.replace(/[^0-9.]/g, ""));
+    const { adminPriceId } = ctx.session;
+    const prod = byProduct(adminPriceId);
+    if (!prod) { ctx.session = {}; return ctx.reply("❌ ምርት አልተገኘም"); }
+    if (!price || price <= 0 || price > 100000)
+      return ctx.reply("❌ ትክክለኛ ዋጋ ያስገቡ (ለምሳሌ: 80)");
+    const oldPrice = prod.pricePerKg;
+    prod.pricePerKg = price;
+    await setSetting(`price_${adminPriceId}`, price);
+    ctx.session = {};
+    const ul = unitLabel(prod);
+    await ctx.reply(
+      `✅ *ዋጋ ተቀይሯል!*\n\n${prod.emoji} *${prod.label}*\nቀድሞ: ${oldPrice} ብር/${ul}\nአሁን: *${price} ብር/${ul}*`,
+      { parse_mode: "Markdown" }
+    );
+    for (const aid of ADMIN_IDS) {
+      if (aid === ctx.from.id) continue;
+      bot.telegram.sendMessage(
+        aid,
+        `${prod.emoji} *${prod.label}* ዋጋ ተቀይሯል\n${oldPrice} → *${price}* ብር/${ul}`,
+        { parse_mode: "Markdown" }
+      ).catch(() => {});
+    }
+    return;
   }
 
   /* ── የጭነት ምዝገባ steps ── */
@@ -1202,8 +1298,8 @@ bot.on("text", async (ctx, next) => {
       `*ማጠቃለያ*\n━━━━━━━━━━━━━━━━\n` +
         `ስም: ${ctx.session.d.name}\n` +
         `ጭነት: ${ctx.session.d.cargo} — *${kg} ኪሎ*\n\n` +
-        `💳 *የምዝገባ ክፍያ: ${kg * REG_PER_KG} ብር* (አሁን ይከፈላል)\n` +
-        `🚚 የጭነት ክፍያ: ${kg * SHIP_PER_KG} ብር (ሲሰበሰብ)\n\n` +
+        `💳 *የምዝገባ (አገልግሎት) ክፍያ: ${kg * REG_PER_KG} ብር* (${kg} ኪሎ × ${REG_PER_KG} ብር/ኪሎ)\n` +
+        `_ሌሎቹ ክፍያዎች ዕቃ ሲወጣ በሌላ መንገድ ይስተካከላሉ_\n\n` +
         `ክፍያ ዘዴ ይምረጡ:`,
       {
         parse_mode: "Markdown",
@@ -1402,6 +1498,62 @@ bot.hears("🔧 Admin", async (ctx) => {
       [Markup.button.callback("📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ", "gb_broadcast_remain")],
       [Markup.button.callback("📢 GB ቻናል ማስታወቂያ", "gb_channel_panel")],
       [Markup.button.callback(`${grpIcon} Group ማስታወቂያ (ምዝገባ Auto-Post)`, "toggle_group_notify")],
+      [Markup.button.callback("💰 ዋጋ ማሻሻያ", "price_panel")],
+      [Markup.button.callback("📋 ምናሌ አስተዳዳሪ (Menu Manager)", "menu_manager")],
+    ]),
+  });
+});
+
+/* ── ዋጋ ማሻሻያ panel ── */
+bot.action("price_panel", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const buttons = GB_PRODUCTS.map((p) => {
+    const ul = p.unit === "liter" ? "ሊትር" : "ኪሎ";
+    return [Markup.button.callback(`${p.emoji} ${p.label} — ${p.pricePerKg} ብር/${ul}`, `adm_setprice_${p.id}`)];
+  });
+  buttons.push([Markup.button.callback("↩️ ተመለስ", "back_to_admin")]);
+  await ctx.reply(
+    `💰 *ዋጋ ማሻሻያ*\n━━━━━━━━━━━━━━━━\nየትኛውን ምርት ዋጋ ለመቀየር?`,
+    { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) }
+  );
+});
+
+bot.action(/^adm_setprice_(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const prodId = ctx.match[1];
+  const prod = byProduct(prodId);
+  if (!prod) return ctx.reply("❌ ምርት አልተገኘም");
+  const ul = unitLabel(prod);
+  ctx.session = { step: "ADMIN_PRICE", adminPriceId: prodId };
+  await ctx.reply(
+    `${prod.emoji} *${prod.label}*\nአሁናዊ ዋጋ: *${prod.pricePerKg} ብር/${ul}*\n\nአዲስ ዋጋ ያስገቡ (ብር):`,
+    { parse_mode: "Markdown" }
+  );
+});
+
+bot.action("back_to_admin", async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  ctx.session = {};
+  const grpOn = await getSetting("group_notify_enabled", true);
+  const grpIcon = grpOn ? "🟢" : "🔴";
+  await ctx.reply("*የአስተዳዳሪ ፓነል*", {
+    parse_mode: "Markdown",
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback("አዲስ አበባ → አማራ ክልል ምዝገቦች", "lst_dir_toamhara")],
+      [Markup.button.callback("አማራ ክልል → አዲስ አበባ ምዝገቦች", "lst_dir_toaa")],
+      [Markup.button.callback("ያልተፈቀዱ ክፍያዎች", "lst_pay")],
+      [Markup.button.callback("ጭነት ሰብሳቢ (አቅራቢያ ዝርዝር)", "col_pick")],
+      [Markup.button.callback("ጭነት ላክ (ለደንበኞች ማሳወቂያ)", "snd_pick")],
+      [Markup.button.callback("የጭነት ሪፖርት", "admin_report")],
+      [Markup.button.callback("ቻናል ማስታወቂያ", "channel_panel")],
+      [Markup.button.callback("ዝርዝር አትም (Print Manifest)", "print_pick")],
+      [Markup.button.callback("📦 የቡድን ግዥ ሁኔታ", "gb_status")],
+      [Markup.button.callback("📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ", "gb_broadcast_remain")],
+      [Markup.button.callback("📢 GB ቻናል ማስታወቂያ", "gb_channel_panel")],
+      [Markup.button.callback(`${grpIcon} Group ማስታወቂያ (ምዝገባ Auto-Post)`, "toggle_group_notify")],
+      [Markup.button.callback("💰 ዋጋ ማሻሻያ", "price_panel")],
       [Markup.button.callback("📋 ምናሌ አስተዳዳሪ (Menu Manager)", "menu_manager")],
     ]),
   });
@@ -1628,6 +1780,64 @@ bot.action("gb_confirm_yes", async (ctx) => {
   }
 
   checkGBCapacity(gbProductId).catch(() => {});
+});
+
+/* ─── ኪሎ ጨምር — action handler ─────────────────────────── */
+bot.action(/^gb_addkg_([a-f\d]{24})$/i, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const regId = ctx.match[1];
+  const reg = await GBReg.findById(regId).lean();
+  if (!reg || reg.userId !== ctx.from?.id)
+    return ctx.reply("❌ ምዝገባ አልተገኘም ወይም ፈቃድ የለዎትም");
+  const prod = byProduct(reg.productId);
+  const ul = unitLabel(prod);
+  ctx.session = {
+    step: "GB_ADDKG",
+    gbAddId: regId,
+    gbAddProductId: reg.productId,
+    gbAddOldKg: reg.weightKg,
+  };
+  await ctx.reply(
+    `➕ *ኪሎ ጨምር — ${prod?.emoji} ${prod?.label}*\n━━━━━━━━━━━━━━━━\n` +
+      `አሁን ያለ: *${reg.weightKg} ${ul}*\n\n` +
+      `*አዲሱ ጠቅላላ ኪሎ* ስንት ይሁን? (ከ ${reg.weightKg} + 1 ​ወዲህ)\n` +
+      `_(ምሳሌ: ቀድሞ 5kg ከሆነ አሁን 10 ያስገቡ → 5kg ልዩነት ብቻ ይከፍላሉ)_`,
+    { parse_mode: "Markdown" }
+  );
+});
+
+bot.action("gb_addkg_confirm", async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const { gbAddId, gbAddProductId, gbAddOldKg, gbAddNewKg, gbAddDiffKg, gbAddDiffFee } = ctx.session || {};
+  if (!gbAddId || !gbAddNewKg) {
+    ctx.session = {};
+    return ctx.reply("⚠️ ጊዜ አልፎታል — እንደገና ይሞክሩ");
+  }
+  const prod = byProduct(gbAddProductId);
+  const ul = unitLabel(prod);
+  await GBReg.findByIdAndUpdate(gbAddId, { $inc: { weightKg: gbAddDiffKg } });
+  ctx.session = {};
+  const updated = await GBReg.findById(gbAddId).lean();
+  await ctx.reply(
+    `✅ *ኪሎ ተጨምሯል!*\n━━━━━━━━━━━━━━━━\n` +
+      `${prod?.emoji} *${prod?.label}*\n` +
+      `ቀድሞ: ${gbAddOldKg} ${ul}  →  አሁን: *${updated?.weightKg || gbAddNewKg} ${ul}*\n\n` +
+      `💳 *ልዩነት ክፍያ: ${gbAddDiffFee} ብር* (${gbAddDiffKg} ${ul} × ${REG_PER_KG} ብር)\n\n` +
+      `📞 ${SUPPORT_PHONE}`,
+    { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) }
+  );
+  for (const aid of ADMIN_IDS)
+    bot.telegram.sendMessage(
+      aid,
+      `🔄 GB ኪሎ ተጨምሯል: ${prod?.emoji}${prod?.label} — ${gbAddOldKg}→${gbAddNewKg}${ul} (+${gbAddDiffKg}${ul}) | ${updated?.fullName}`,
+    ).catch(() => {});
+  checkGBCapacity(gbAddProductId).catch(() => {});
+});
+
+bot.action("gb_addkg_cancel", async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  ctx.session = {};
+  return ctx.reply("ሰርዟል።", await mainKb(ctx.from?.id));
 });
 
 bot.action("gb_confirm_no", async (ctx) => {
