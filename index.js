@@ -17,6 +17,7 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || "";
 const AI_AUTO_APPROVE = (process.env.AI_AUTO_APPROVE || "true") === "true";
 const TARGET_KG_DEFAULT = Number(process.env.TARGET_KG_DEFAULT) || 5000;
 const CHANNEL_ID = (process.env.CHANNEL_ID || "").trim();
+const GROUP_ID   = (process.env.GROUP_ID   || "").trim();
 
 let REG_PER_KG = 10;
 let SHIP_PER_KG = 25;
@@ -415,7 +416,7 @@ function card(r, admin = false) {
   return t;
 }
 
-function capLine(total, target) {
+function capLine(total, target, unit = "ኪሎ") {
   const pct = Math.max(0, Math.min(100, Math.round((total / target) * 100)));
   const filled = Math.round(pct / 10),
     remain = Math.max(0, target - total);
@@ -427,11 +428,11 @@ function capLine(total, target) {
     "%\n" +
     "የተመዘገበ: " +
     total +
-    " ኪሎ | ቀሪ: " +
+    " " + unit + " | ቀሪ: " +
     remain +
-    " ኪሎ | ኢላማ: " +
+    " " + unit + " | ኢላማ: " +
     target +
-    " ኪሎ"
+    " " + unit
   );
 }
 
@@ -614,7 +615,7 @@ async function checkGBCapacity(productId) {
         .sendMessage(
           CHANNEL_ID,
           `*${prod.emoji} ${prod.label} — ምዝገባ ሞልቷል!*\n\n` +
-            `${capLine(totalKg, prod.targetKg)}\n\n` +
+            `${capLine(totalKg, prod.targetKg, ul)}\n\n` +
             `ቀጥታ ከ ምንጭ — *${prod.pricePerKg} ብር/${ul}*\n${SUPPORT_PHONE}`,
           { parse_mode: "Markdown" },
         )
@@ -968,12 +969,12 @@ for (const prod of GB_PRODUCTS) {
     await ctx.reply(
       `${prod.emoji} *${prod.label} — የቡድን ግዥ*\n` +
         `━━━━━━━━━━━━━━━━\n` +
-        `💰 *የምርት ዋጋ: ${prod.pricePerKg} ብር/${ul}*\n` +
-        `📋 *የአገልግሎት ክፍያ: ${REG_PER_KG} ብር/${ul}*\n` +
-        `_(ቀጥታ ከ ምንጭ — ከገበያ ዋጋ ያነሰ! ትንሽ አገልግሎት ክፍያ ብቻ)_\n\n` +
-        `${capLine(regKg, prod.targetKg)}\n` +
-        `ተሳታፊ ሰዎች: ${regCount}\n\n` +
-        `ለመመዝገብ *ሙሉ ስምዎን* ያስገቡ:`,
+        `💰 የምርት ዋጋ: *${prod.pricePerKg} ብር/${ul}*\n` +
+        `📋 አገልግሎት ክፍያ: *${REG_PER_KG} ብር/${ul}* _(bot ዉስጥ ብቻ)_\n` +
+        `✨ _ከገበያ ዋጋ ያነሰ — ቀጥታ ከ ምንጭ!_\n\n` +
+        `${capLine(regKg, prod.targetKg, ul)}\n` +
+        `👥 ተሳታፊ: ${regCount} ሰው\n\n` +
+        `👤 ሙሉ ስምዎን ያስገቡ:`,
       { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
     );
   });
@@ -1134,75 +1135,40 @@ bot.on("text", async (ctx, next) => {
       return ctx.reply("ትክክለኛ ቁጥር ያስገቡ (1–5000)");
     const prod = byProduct(ctx.session.gbProductId);
     const ul = unitLabel(prod);
-    const { gbName, gbPhone, gbProductId } = ctx.session;
-    const totalCost = Math.round(kg * (prod?.pricePerKg || 0));
-    ctx.session = {};
+    const serviceFee = Math.round(kg * REG_PER_KG);
 
-    await GBReg.create({
-      userId: ctx.from.id,
-      username: ctx.from.username || "",
-      productId: gbProductId,
-      fullName: gbName,
-      phone: gbPhone,
-      weightKg: kg,
-      totalCost,
-      pricePerKg: prod?.pricePerKg || 0,
-    });
+    // Save kg to session for confirmation step
+    ctx.session.gbKg = kg;
+    ctx.session.step = "GB_CONFIRM";
 
-    const agg = await GBReg.aggregate([
-      { $match: { productId: gbProductId } },
-      { $group: { _id: null, kg: { $sum: "$weightKg" }, count: { $sum: 1 } } },
-    ]);
-    const regKg = agg[0]?.kg || 0,
-      regCount = agg[0]?.count || 0;
-
-    await ctx.reply(
-      `✅ *ምዝገባ ተጠናቀቀ!*\n` +
+    // Show service fee auto-check summary + confirm buttons
+    return ctx.reply(
+      `📋 *የምዝገባ ማረጋገጫ*\n` +
         `━━━━━━━━━━━━━━━━\n` +
-        `${prod?.emoji} *${prod?.label}*\n` +
-        `ስም: ${gbName} | ስልክ: ${gbPhone}\n` +
-        `ተመዝግቦ: *${kg} ${ul}*\n` +
+        `${prod?.emoji} *${prod?.label}*  •  ${kg} ${ul}\n` +
+        `👤 ${ctx.session.gbName}  |  📞 ${ctx.session.gbPhone}\n\n` +
         `💰 የምርት ዋጋ: ${prod?.pricePerKg} ብር/${ul}\n` +
-        `📋 የአገልግሎት ክፍያ: *${REG_PER_KG} ብር/${ul}* ← _ይህ ብቻ ነው ለ bot ምከፈለው_\n` +
-        `💵 ጠቅላላ አገልግሎት: *${(kg * REG_PER_KG).toLocaleString()} ብር*\n\n` +
-        `⚠️ _የምርት ክፍያ (${totalCost.toLocaleString()} ብር) ምዝገባ ሲሞላ\nበሌላ መንገድ ይከፈላል — አሁን ክፍያ አያስፈልግም!_\n\n` +
-        `*ጠቅላላ ሁኔታ:*\n${capLine(regKg, prod?.targetKg || 5000)}\n` +
-        `ተሳታፊ ሰዎች: ${regCount}\n\n` +
-        `ምዝገባ ሲሞላ እናሳውቅዎታለን!\nለጥያቄ: ${SUPPORT_PHONE}`,
-      { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
+        `📋 *የአገልግሎት ክፍያ:*\n` +
+        `   ${kg} ${ul} × ${REG_PER_KG} ብር = *${serviceFee.toLocaleString()} ብር* ✅\n\n` +
+        `⚠️ _ይህ ክፍያ ብቻ ለ bot ይከፈላል — የምርት ዋጋ ምዝገባ ሲሞላ ይጠየቃሉ_\n\n` +
+        `ምዝገባ ያረጋግጡ?`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✅ አረጋግጥና ምዝገብ", callback_data: "gb_confirm_yes" },
+              { text: "❌ ሰርዝ", callback_data: "gb_confirm_no" },
+            ],
+          ],
+        },
+      },
     );
+  }
 
-    for (const aid of ADMIN_IDS)
-      bot.telegram
-        .sendMessage(
-          aid,
-          `አዲስ GB ምዝገባ: ${prod?.emoji}${prod?.label} — ${gbName} (${gbPhone}) — ${kg}${ul} @ ${prod?.pricePerKg}ብ/${ul} = ${totalCost.toLocaleString()}ብ`,
-        )
-        .catch(() => {});
-
-    // ቻናል ሪፖርት — አዲስ ምዝገባ
-    if (CHANNEL_ID) {
-      bot.telegram
-        .sendMessage(
-          CHANNEL_ID,
-          `${prod?.emoji} *${prod?.label} — አዲስ ምዝገባ!*\n` +
-            `━━━━━━━━━━━━━━━━\n` +
-            `👤 ስም: ${gbName}\n` +
-            `📞 ስልክ: ${gbPhone}\n` +
-            `⚖️ ተመዝግቦ: *${kg} ${ul}*\n` +
-            `💰 ዋጋ: ${prod?.pricePerKg} ብር/${ul}\n` +
-            `📋 አገልግሎት ክፍያ: ${REG_PER_KG} ብር/${ul}\n` +
-            `💵 ጠቅላላ: *${totalCost.toLocaleString()} ብር*\n\n` +
-            `*ጠቅላላ ሁኔታ:*\n${capLine(regKg, prod?.targetKg || 5000)}\n` +
-            `ተሳታፊ ሰዎች: ${regCount}`,
-          { parse_mode: "Markdown" },
-        )
-        .catch(() => {});
-    }
-
-    // ምዝገባ ሞልቷል ከሆነ ሁሉንም ያሳውቃቸዋል
-    checkGBCapacity(gbProductId).catch(() => {});
-    return;
+  if (step === "GB_CONFIRM") {
+    // User typed instead of pressing button
+    return ctx.reply("ከዚህ በታች ያሉትን ቁልፎች ይጠቀሙ 👆");
   }
 
   /* ── የጭነት ምዝገባ steps ── */
@@ -1418,6 +1384,9 @@ bot.hears("🔧 Admin", async (ctx) => {
   if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   ctx.session = {};
 
+  const grpOn = await getSetting("group_notify_enabled", true);
+  const grpIcon = grpOn ? "🟢" : "🔴";
+
   await ctx.reply("*የአስተዳዳሪ ፓነል*", {
     parse_mode: "Markdown",
     ...Markup.inlineKeyboard([
@@ -1432,9 +1401,33 @@ bot.hears("🔧 Admin", async (ctx) => {
       [Markup.button.callback("📦 የቡድን ግዥ ሁኔታ", "gb_status")],
       [Markup.button.callback("📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ", "gb_broadcast_remain")],
       [Markup.button.callback("📢 GB ቻናል ማስታወቂያ", "gb_channel_panel")],
+      [Markup.button.callback(`${grpIcon} Group ማስታወቂያ (ምዝገባ Auto-Post)`, "toggle_group_notify")],
       [Markup.button.callback("📋 ምናሌ አስተዳዳሪ (Menu Manager)", "menu_manager")],
     ]),
   });
+});
+
+/* ── Group notification toggle ── */
+bot.action("toggle_group_notify", async (ctx) => {
+  if (!isAdmin(ctx)) {
+    await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {});
+    return;
+  }
+  await ctx.answerCbQuery().catch(() => {});
+
+  const current = await getSetting("group_notify_enabled", true);
+  const next = !current;
+  await setSetting("group_notify_enabled", next);
+
+  const icon = next ? "🟢" : "🔴";
+  const label = next ? "ተነቃቁ (ON)" : "ተዘጋ (OFF)";
+  await ctx.reply(
+    `${icon} *Group ማስታወቂያ — ${label}*\n\n` +
+      (next
+        ? `ደንበኛ ሲመዘገብ ወዲያው ወደ Group ይላካል።\n_(GROUP_ID: ${GROUP_ID || "አልተቀመጠም"})_`
+        : `Group ማስታወቂያ ቆሟል — ምዝገባ ለ Channel/Admin ብቻ ይላካል።`),
+    { parse_mode: "Markdown" },
+  );
 });
 
 /* ── ምናሌ አስተዳዳሪ — ሁሉንም ቁልፎች ያሳያል ──────────────────────── */
@@ -1561,6 +1554,91 @@ bot.action("gb_status", async (ctx) => {
   await ctx.reply(txt, { parse_mode: "Markdown" });
 });
 
+/* ── GB Confirm / Cancel ── */
+bot.action("gb_confirm_yes", async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const { gbProductId, gbName, gbPhone, gbKg } = ctx.session || {};
+  if (!gbProductId || !gbName || !gbPhone || !gbKg) {
+    ctx.session = {};
+    return ctx.reply("⚠️ ምዝገባ ጊዜ አልፎታል — እንደገና ይጀምሩ።", await mainKb(ctx.from?.id));
+  }
+
+  const prod = byProduct(gbProductId);
+  const ul = unitLabel(prod);
+  const totalCost = Math.round(gbKg * (prod?.pricePerKg || 0));
+  const serviceFee = Math.round(gbKg * REG_PER_KG);
+  ctx.session = {};
+
+  await GBReg.create({
+    userId: ctx.from.id,
+    username: ctx.from.username || "",
+    productId: gbProductId,
+    fullName: gbName,
+    phone: gbPhone,
+    weightKg: gbKg,
+    totalCost,
+    pricePerKg: prod?.pricePerKg || 0,
+  });
+
+  const agg = await GBReg.aggregate([
+    { $match: { productId: gbProductId } },
+    { $group: { _id: null, kg: { $sum: "$weightKg" }, count: { $sum: 1 } } },
+  ]);
+  const regKg = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
+
+  // ── Short & ad-style completion message ──────────────────
+  await ctx.reply(
+    `🎉 *ምዝገባ ተጠናቀቀ!*\n` +
+      `━━━━━━━━━━━━━━━━\n` +
+      `${prod?.emoji} *${prod?.label}* — ${gbKg} ${ul}\n` +
+      `👤 ${gbName}  |  📞 ${gbPhone}\n\n` +
+      `📋 *አገልግሎት ክፍያ: ${serviceFee.toLocaleString()} ብር* ✅\n` +
+      `_(${gbKg} ${ul} × ${REG_PER_KG} ብር — ለ bot ብቻ)_\n\n` +
+      `${capLine(regKg, prod?.targetKg || 5000, ul)}\n` +
+      `👥 ተሳታፊ: ${regCount} ሰው\n\n` +
+      `✨ _ምዝገባ ሲሞላ እናሳውቅዎታለን!_\n📞 ${SUPPORT_PHONE}`,
+    { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
+  );
+
+  // Admin notification
+  for (const aid of ADMIN_IDS)
+    bot.telegram
+      .sendMessage(aid,
+        `🆕 GB: ${prod?.emoji}${prod?.label} — ${gbName} (${gbPhone}) — ${gbKg}${ul} | አገልግሎት: ${serviceFee}ብ`)
+      .catch(() => {});
+
+  // ── Channel post ───────────────────────────────────────
+  const regMsg =
+    `${prod?.emoji} *${prod?.label} — አዲስ ምዝገባ!*\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `👤 ${gbName}  |  📞 ${gbPhone}\n` +
+    `⚖️ *${gbKg} ${ul}*  •  ${prod?.pricePerKg} ብር/${ul}\n` +
+    `📋 አገልግሎት: ${serviceFee.toLocaleString()} ብር\n\n` +
+    `${capLine(regKg, prod?.targetKg || 5000, ul)}\n` +
+    `👥 ተሳታፊ: ${regCount} ሰው`;
+
+  if (CHANNEL_ID)
+    bot.telegram.sendMessage(CHANNEL_ID, regMsg, { parse_mode: "Markdown" }).catch(() => {});
+
+  // ── Group automatic post (if enabled) ──────────────────
+  if (GROUP_ID) {
+    const groupEnabled = await getSetting("group_notify_enabled", true);
+    if (groupEnabled)
+      bot.telegram.sendMessage(GROUP_ID, regMsg, { parse_mode: "Markdown" }).catch(() => {});
+  }
+
+  checkGBCapacity(gbProductId).catch(() => {});
+});
+
+bot.action("gb_confirm_no", async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  ctx.session = {};
+  return ctx.reply(
+    "❌ ምዝገባ ተሰርዟል።\nለማስጀምር ዳግም ምርቱን ይምረጡ።",
+    await mainKb(ctx.from?.id),
+  );
+});
+
 /* ── Broadcast remaining kg to all users ── */
 bot.action("gb_broadcast_remain", async (ctx) => {
   if (!isAdmin(ctx)) {
@@ -1580,7 +1658,7 @@ bot.action("gb_broadcast_remain", async (ctx) => {
       regCount = res[0]?.count || 0;
     summary +=
       `${prod.emoji} *${prod.label}* — *${prod.pricePerKg} ብር/${ul}*\n` +
-      `${capLine(regKg, prod.targetKg)}\nተሳታፊ ሰዎች: ${regCount}\n\n`;
+      `${capLine(regKg, prod.targetKg, ul)}\n👥 ተሳታፊ: ${regCount} ሰው\n\n`;
   }
   summary +=
     `ቀጥታ ከ *ገበሬዎች* እና *ፋብሪካዎች*!\n` +
@@ -1649,11 +1727,11 @@ bot.action(/^gb_ch_ann_(.+)$/, async (ctx) => {
       `${prod.emoji} *${prod.label}*\n` +
       `💰 የምርት ዋጋ: *${prod.pricePerKg} ብር/${ul}*\n` +
       `📋 የአገልግሎት ክፍያ: *${REG_PER_KG} ብር/${ul}*\n` +
-      `${capLine(regKg, prod.targetKg)}\n` +
-      `ተሳታፊ ሰዎች: ${regCount}\n\n`;
+      `${capLine(regKg, prod.targetKg, ul)}\n` +
+      `👥 ተሳታፊ: ${regCount} ሰው\n\n`;
   }
   msg +=
-    `ቀጥታ ከ *ገበሬዎች* እና *ፋብሪካዎች*!\n` +
+    `✨ ቀጥታ ከ *ገበሬዎች* እና *ፋብሪካዎች*!\n` +
     `_ትንሽ አገልግሎት ክፍያ ብቻ — ሌላ ክፍያ የለም!_\n\n` +
     `ለምዝገባ ቦቱን ይጠቀሙ | ${SUPPORT_PHONE}`;
 
