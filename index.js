@@ -5,7 +5,7 @@ const mongoose = require("mongoose");
 const Anthropic = require("@anthropic-ai/sdk");
 const http = require("http");
 
-/* â”€â”€â”€ 1. CONFIG â”€â
+/* ─── 1. CONFIG ─────────────────────────────────────────── */
 const BOT_TOKEN = (process.env.BOT_TOKEN || "").trim();
 const MONGO_URI = process.env.MONGO_URI || "";
 const SUPPORT_PHONE = process.env.SUPPORT_PHONE || "0960336138";
@@ -23,7 +23,7 @@ let REG_PER_KG = 5;
 let SHIP_PER_KG = 25;
 
 if (!BOT_TOKEN || !MONGO_URI) {
-  console.error("BOT_TOKEN áŠ¥áŠ“ MONGO_URI á‹«áˆµá ˆáˆ áŒ‹áˆ‰");
+  console.error("BOT_TOKEN እና MONGO_URI ያስፈልጋሉ");
   process.exit(1);
 }
 
@@ -31,58 +31,58 @@ const anthropic = ANTHROPIC_KEY
   ? new Anthropic({ apiKey: ANTHROPIC_KEY })
   : null;
 
-/* â”€â”€â”€ 2. á‹¨á‰¡á‹µáŠ• áŒ á‹¥ áˆ áˆá‰¶á‰½ â”€â
+/* ─── 2. የቡድን ግዥ ምርቶች ──────────────────────────────────── */
 const GB_PRODUCTS = [
   {
     id: "teff",
-    emoji: "ðŸŒ¾",
-    label: "áŒ¤á",
+    emoji: "🌾",
+    label: "ጤፍ",
     unit: "kg",
     targetKg: Number(process.env.GB_TEFF_KG) || 5000,
     pricePerKg: Number(process.env.GB_TEFF_PRICE) || 75,
   },
   {
     id: "oil",
-    emoji: "ðŸ›¢",
-    label: "á‹˜á‹á‰µ",
+    emoji: "🛢",
+    label: "ዘይት",
     unit: "liter",
     targetKg: Number(process.env.GB_OIL_KG) || 3000,
     pricePerKg: Number(process.env.GB_OIL_PRICE) || 120,
   },
   {
     id: "sugar",
-    emoji: "ðŸš",
-    label: "áˆµáŠ³áˆ",
+    emoji: "🍚",
+    label: "ስኳር",
     unit: "kg",
     targetKg: Number(process.env.GB_SUGAR_KG) || 3000,
     pricePerKg: Number(process.env.GB_SUGAR_PRICE) || 55,
   },
   {
     id: "flour",
-    emoji: "ðŸŒ½",
-    label: "á‹±á‰„á‰µ",
+    emoji: "🌽",
+    label: "ዱቄት",
     unit: "kg",
     targetKg: Number(process.env.GB_FLOUR_KG) || 3000,
     pricePerKg: Number(process.env.GB_FLOUR_PRICE) || 60,
   },
   {
     id: "onion",
-    emoji: "ðŸ§…",
-    label: "áˆ½áŠ•áŠ©áˆá‰µ",
+    emoji: "🧅",
+    label: "ሽንኩርት",
     unit: "kg",
     targetKg: Number(process.env.GB_ONION_KG) || 2000,
     pricePerKg: Number(process.env.GB_ONION_PRICE) || 30,
   },
 ];
 const byProduct = (id) => GB_PRODUCTS.find((p) => p.id === id);
-const unitLabel = (p) => (p.unit === "liter" ? "áˆŠá‰µáˆ" : "áŠªáˆŽ");
+const unitLabel = (p) => (p.unit === "liter" ? "ሊትር" : "ኪሎ");
 
-/* â”€â”€â”€ áˆ áŠ“áˆŒ á‰ áˆ á Á‰½ €â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ €â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── ምናሌ ቁልፎች ────────────────────────────────────────── */
 const MENU_SETTINGS = [
-  { key: "menu_cargo_toamhara", emoji: "ðŸ”¼", label: "áŠ á‹2áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ (áŒáŠ á‰µ)"
-  { key: "menu_cargo_toaa", emoji: "ðŸ”1⁄2", label: "áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£ (áŒáŠ á‰µ)"
-  { key: "menu_my_regs", emoji: "ðŸ“‹", label: "á‹¨áˆ á‹ áŒˆá‰£ á‹ áˆá‹ áˆ¬" },
-  { key: "menu_counter", emoji: "ðŸ“Š", label: "á‹¨áŒáŠ á‰µ á‰†áŒ£áˆa" },
+  { key: "menu_cargo_toamhara", emoji: "🔼", label: "አዲስ አበባ → አማራ ክልል (ጭነት)" },
+  { key: "menu_cargo_toaa", emoji: "🔽", label: "አማራ ክልል → አዲስ አበባ (ጭነት)" },
+  { key: "menu_my_regs", emoji: "📋", label: "የምዝገባ ዝርዝሬ" },
+  { key: "menu_counter", emoji: "📊", label: "የጭነት ቆጣሪ" },
   ...GB_PRODUCTS.map((p) => ({
     key: `menu_product_${p.id}`,
     emoji: p.emoji,
@@ -90,40 +90,40 @@ const MENU_SETTINGS = [
   })),
 ];
 
-/* â”€â”€â”€ 3. ROUTES / METHODS â”€â
+/* ─── 3. ROUTES / METHODS ───────────────────────────────── */
 const ROUTES_TO_AMHARA = [
-  { id: "aa_finotselam", emoji: "ðŸŸ¢", label: "áŠ á‹2áˆµ áŠ á‰ á‰£ â†' á áŠ–á‰°áˆ°áˆ‹áˆ ", targetKg: TARGET_KG_DEFAULT},
-  { id: "aa_debre_markos", emoji: "ðŸ”µ", label: "áŠ á‹2áˆµ áŠ á‰ á‰£ â†' á‹°á‰¥áˆ ̈ áˆ›áˆá‰†áˆµg: T_GKUG_KAR}, target},
-  { id: "aa_mota", emoji: "ðŸŸ¤", label: "áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áˆžáŒ£", targetKg: TARGET_KG_DEFAULT },
-  { id: "aa_bahirdar", emoji: "ðŸ”µ", label: "áŠ á‹2áˆµ áŠ á‰ á‰£ â†' á‰£áˆ...áˆ á‹³áˆ", targetKg: TARGET_KG_DEFAULT },
-  { id: "aa_gondar", emoji: "ðŸŸ£", label: "áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŒŽáŠ•á‹°áˆ", targetKg: TARGET_KG_DEFAULT },
-  { id: "aa_debre_berhan", emoji: "ðŸŸ¡", label: "áŠ á‹²áˆµ áŠ á‰ á‰£ â†' á‹°á‰¥áˆ¨ á‰¥áˆáˆƒáŠ TAR: G_G_G_GETFAU}, target
-  { id: "aa_kemissie", emoji: "ðŸŸ ", label: "áŠ á‹2áˆµ áŠ á‰ á‰£ â†' áŠ¨áˆšáˆ´", targetKg: TARGET_KG_DEFAULT },
-  { id: "aa_dessie", emoji: "ðŸ”´", label: "áŠ á‹²áˆµ áŠ á‰ á‰£ â†' á‹°áˆ´", targetKg: TARGET_KG_DEFAULT },
+  { id: "aa_finotselam",   emoji: "🟢", label: "አዲስ አበባ → ፍኖተሰላም",   targetKg: TARGET_KG_DEFAULT },
+  { id: "aa_debre_markos", emoji: "🔵", label: "አዲስ አበባ → ደብረ ማርቆስ", targetKg: TARGET_KG_DEFAULT },
+  { id: "aa_mota",         emoji: "🟤", label: "አዲስ አበባ → ሞጣ",         targetKg: TARGET_KG_DEFAULT },
+  { id: "aa_bahirdar",     emoji: "🔵", label: "አዲስ አበባ → ባህር ዳር",     targetKg: TARGET_KG_DEFAULT },
+  { id: "aa_gondar",       emoji: "🟣", label: "አዲስ አበባ → ጎንደር",       targetKg: TARGET_KG_DEFAULT },
+  { id: "aa_debre_berhan", emoji: "🟡", label: "አዲስ አበባ → ደብረ ብርሃን", targetKg: TARGET_KG_DEFAULT },
+  { id: "aa_kemissie",     emoji: "🟠", label: "አዲስ አበባ → ከሚሴ",       targetKg: TARGET_KG_DEFAULT },
+  { id: "aa_dessie",       emoji: "🔴", label: "አዲስ አበባ → ደሴ",         targetKg: TARGET_KG_DEFAULT },
 ];
 const ROUTES_TO_AA = [
-  { id: "finotselam_aa", emoji: "ðŸŸ¢", label: "á áŠ–á‰°áˆ°áˆ‹áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£", targetKg: TARGET_KG_DEFAULT },
-  { id: "debre_markos_aa", emoji: "ðŸ”µ", label: "á‹°á‰¥áˆ¨ áˆ›áˆá‰†áˆµ â†' áŠ á‹²áˆµ áŠ á‰ á‰ á‰K£_GGUG_GAR_DE,
-  { id: "mota_aa", emoji: "ðŸŸ¤", label: "áˆžáŒ£ â†' áŠ á‹²áˆµ áŠ á‰ á‰£", targetKg: TARGET_KG_DEFAULT },
-  { id: "bahirdar_aa", emoji: "ðŸ”µ", label: "á‰£áˆ...áˆ á‹3áˆ â†' áŠ á‹2áˆµ áŠ á‰ á‰£", targetKg: TARGET_KG_DEFAULT },
-  { id: "gondar_aa", emoji: "ðŸŸ£", label: "áŒŽáŠ•á‹°áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£", targetKg: TARGET_KG_DEFAULT },
-  { id: "debre_berhan_aa", emoji: "ðŸŸ¡", label: "á‹°á‰¥áˆ¨ á‰¥áˆáˆƒáŠ• â†' áŠ á‹²áˆµ áŠ á‰ á‰£, target_GET_GET_GET_GET},
-  { id: "kemissie_aa", emoji: "ðŸŸ ", label: "áŠ¨áˆšáˆ´ â†' áŠ á‹²áˆµ áŠ á‰ á‰£", targetKg: TARGET_KG_DEFAULT },
-  { id: "dessie_aa", emoji: "ðŸ”´", label: "á‹°áˆ´ â†' áŠ á‹²áˆµ áŠ á‰ á‰£", targetKg: TARGET_KG_DEFAULT },
+  { id: "finotselam_aa",   emoji: "🟢", label: "ፍኖተሰላም → አዲስ አበባ",   targetKg: TARGET_KG_DEFAULT },
+  { id: "debre_markos_aa", emoji: "🔵", label: "ደብረ ማርቆስ → አዲስ አበባ", targetKg: TARGET_KG_DEFAULT },
+  { id: "mota_aa",         emoji: "🟤", label: "ሞጣ → አዲስ አበባ",         targetKg: TARGET_KG_DEFAULT },
+  { id: "bahirdar_aa",     emoji: "🔵", label: "ባህር ዳር → አዲስ አበባ",     targetKg: TARGET_KG_DEFAULT },
+  { id: "gondar_aa",       emoji: "🟣", label: "ጎንደር → አዲስ አበባ",       targetKg: TARGET_KG_DEFAULT },
+  { id: "debre_berhan_aa", emoji: "🟡", label: "ደብረ ብርሃን → አዲስ አበባ", targetKg: TARGET_KG_DEFAULT },
+  { id: "kemissie_aa",     emoji: "🟠", label: "ከሚሴ → አዲስ አበባ",       targetKg: TARGET_KG_DEFAULT },
+  { id: "dessie_aa",       emoji: "🔴", label: "ደሴ → አዲስ አበባ",         targetKg: TARGET_KG_DEFAULT },
 ];
 const ROUTES = [...ROUTES_TO_AMHARA, ...ROUTES_TO_AA];
 
 const METHODS = [
   {
     id: "telebirr",
-    emoji: "ðŸ“±",
-    label: "á‰´áˆŒá‰¥áˆ",
+    emoji: "📱",
+    label: "ቴሌብር",
     info: process.env.TELEBIRR_INFO || "Telebirr: 0960336138",
   },
   {
     id: "cbe",
-    emoji: "ðŸ¦",
-    label: "CBE á‰£áŠ•áŠ",
+    emoji: "🏦",
+    label: "CBE ባንክ",
     info: process.env.CBE_INFO || "CBE: 1000370308447",
   },
 ];
@@ -132,7 +132,7 @@ const byRoute = (id) => ROUTES.find((r) => r.id === id);
 const byMethod = (id) => METHODS.find((m) => m.id === id);
 const ACTIVE = ["pending", "reviewing", "approved"];
 
-/* â”€â”€â”€ 4. DB MODELS â”€â
+/* ─── 4. DB MODELS ──────────────────────────────────────── */
 const Reg = mongoose.model(
   "Reg",
   new mongoose.Schema({
@@ -219,7 +219,7 @@ async function setSetting(key, value) {
   await BotSettings.findOneAndUpdate({ key }, { value }, { upsert: true });
 }
 
-/* â”€â”€â”€ á‹‹áŒ‹ áŠ¨ DB á‹áŒ«áŠ“áˆ‰ â”€â
+/* ─── ዋጋ ከ DB ይጫናሉ ────────────────────────────────────── */
 async function loadPricesFromDB() {
   for (const prod of GB_PRODUCTS) {
     const saved = await getSetting(`price_${prod.id}`, null);
@@ -231,7 +231,7 @@ async function loadPricesFromDB() {
   if (savedShip !== null && savedShip > 0) SHIP_PER_KG = savedShip;
 }
 
-/* â”€â”€â”€ 5. SESSION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 5. SESSION ────────────────────────────────────────── */
 async function getSession(key) {
   try {
     const d = await Session.findOne({ key }).lean();
@@ -257,7 +257,7 @@ function sessionMW(ctx, next) {
   });
 }
 
-/* â”€â”€â”€ 6. SECURITY â”€â
+/* ─── 6. SECURITY ───────────────────────────────────────── */
 function sanitize(text) {
   if (typeof text !== "string") return "";
   return text
@@ -304,49 +304,49 @@ function isSuspicious(text) {
   return patterns.some((p) => p.test(text));
 }
 
-/* â”€â”€â”€ 7. HELPERS â”€â
+/* ─── 7. HELPERS ────────────────────────────────────────── */
 const isAdmin = (ctx) => ADMIN_IDS.includes(ctx.from?.id);
 
 const ST = {
-  pending: "áŠá á‹« á‹áŒ á‰¥á‰ƒáˆ ",
-  reviewing: "áŠ¥á‹¨á‰°á ˆá‰°áˆ¸ áŠ á‹ ",
-  approved: "á‰°á ˆá‰…á‹·áˆ ",
-  rejected: "áŠ áˆ á‰°á‰€á‰ áˆˆáˆ ",
-  sent: "á‰°áˆ áŠ³áˆ ",
+  pending: "ክፍያ ይጠብቃል",
+  reviewing: "እየተፈተሸ ነው",
+  approved: "ተፈቅዷል",
+  rejected: "አልተቀበለም",
+  sent: "ተልኳል",
 };
 
 function card(r, admin = false) {
   const ro = byRoute(r.routeId),
     me = byMethod(r.paymentMethod);
   let t =
-    `${for?.emoji} *${for?.label}*\n` +
-    `áˆµáˆ: ${r.fullName} | áˆµáˆáŠ­: ${r.phone}\n` +
-    `áŒáŠ á‰µ: ${r.cargoDesc} â€” ${r.weightKg} áŠaáˆŽ\n` +
-    `áŠá á‹«: ${me?.label || "â€”"} | áŠ á‹µáˆ«áˆ»: ${r.locationLat ? `[áŠ«áˆá‰³](https://maps.google.com/?q=${r.locationLat},${r.locationLng})` : "áŠ áˆ á‰°áˆ‹áŠ¨áˆ "}\n` +
-    `áˆ áŠ”á‰³: ${ST[r.status]}`;
-  if (r.aiAutoApproved) t += " (AI á‹«áˆ¨áŒ‹áŒˆáŒ )";
+    `${ro?.emoji} *${ro?.label}*\n` +
+    `ስም: ${r.fullName} | ስልክ: ${r.phone}\n` +
+    `ጭነት: ${r.cargoDesc} — ${r.weightKg} ኪሎ\n` +
+    `ክፍያ: ${me?.label || "—"} | አድራሻ: ${r.locationLat ? `[ካርታ](https://maps.google.com/?q=${r.locationLat},${r.locationLng})` : "አልተላከም"}\n` +
+    `ሁኔታ: ${ST[r.status]}`;
+  if (r.aiAutoApproved) t += " (AI ያረጋገጠ)";
   if (admin) t += `\n\`${r.userId}\`${r.username ? " @" + r.username : ""}`;
   return t;
 }
 
-function capLine(total, target, unit = "áŠªáˆŽ") {
+function capLine(total, target, unit = "ኪሎ") {
   const pct = Math.max(0, Math.min(100, Math.round((total / target) * 100)));
   const filled = Math.round(pct / 10),
     remain = Math.max(0, target - total);
   return (
-    "â–ˆ".repeat(filled) +
-    "â–‘".repeat(10 - filled) +
+    "█".repeat(filled) +
+    "░".repeat(10 - filled) +
     " " + pct + "%\n" +
-    "á‹¨á‰°áˆ˜á‹˜áŒˆá‰ : " + total + " " + unit +
-    " | á‰€áˆa: " + remain + " " + unit +
-    " | áŠ¢áˆ‹áˆ›: " + target + " " + unit
+    "የተመዘገበ: " + total + " " + unit +
+    " | ቀሪ: " + remain + " " + unit +
+    " | ኢላማ: " + target + " " + unit
   );
 }
 
-/* â”€â”€â”€ 8. KEYBOARDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 8. KEYBOARDS ──────────────────────────────────────── */
 async function mainKb(userId) {
   const isAdminUser = ADMIN_IDS.includes(userId);
-  const [ loadToAmhara , loadToAA , myRegs , counter , ...productEnabled ] =
+  const [cargoToAmhara, cargoToAA, myRegs, counter, ...productEnabled] =
     await Promise.all([
       getSetting("menu_cargo_toamhara", true),
       getSetting("menu_cargo_toaa", true),
@@ -357,13 +357,13 @@ async function mainKb(userId) {
 
   const rows = [];
   const row1 = [];
-  if (isAdminUser || cargoToAmhara) row1.push("ðŸ”¼ áŠ á‹2áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ ");
-  if (isAdminUser || cargoToAA) row1.push("ðŸ”½ áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£");
+  if (isAdminUser || cargoToAmhara) row1.push("🔼 አዲስ አበባ → አማራ ክልል");
+  if (isAdminUser || cargoToAA) row1.push("🔽 አማራ ክልል → አዲስ አበባ");
   if (row1.length) rows.push(row1);
 
   const row2 = [];
-  if (isAdminUser || myRegs) row2.push("ðŸ“‹ á‹¨áˆ á‹ áŒˆá‰£ á‹ áˆá‹ áˆ¬");
-  if (isAdminUser || counter) row2.push("ðŸ“Š á‹¨áŒáŠ á‰µ á‰†áŒ£áˆa");
+  if (isAdminUser || myRegs) row2.push("📋 የምዝገባ ዝርዝሬ");
+  if (isAdminUser || counter) row2.push("📊 የጭነት ቆጣሪ");
   if (row2.length) rows.push(row2);
 
   const prodRow1 = [], prodRow2 = [];
@@ -377,7 +377,7 @@ async function mainKb(userId) {
   if (prodRow1.length) rows.push(prodRow1);
   if (prodRow2.length) rows.push(prodRow2);
 
-  if (ADMIN_IDS.length) rows.push(["ðŸ”§ Admin"]);
+  if (ADMIN_IDS.length) rows.push(["🔧 Admin"]);
 
   if (!isAdminUser && rows.length === (ADMIN_IDS.length ? 1 : 0)) {
     return Markup.removeKeyboard();
@@ -393,18 +393,18 @@ const dirRoutesKb = (routes) =>
   );
 const locKb = () =>
   Markup.keyboard([
-    [Markup.button.locationRequest("ðŸ“ áŠ á‹µáˆ«áˆ»á‹¬áŠ• áˆ‹áŠ")],
-    ["â ï¸ áˆ³áˆ‹áŒ‹áˆ« áŒ¨áˆáˆµ"],
+    [Markup.button.locationRequest("📍 አድራሻዬን ላክ")],
+    ["⏭️ ሳላጋራ ጨርስ"],
   ]).resize().oneTime();
 const approveKb = (id) =>
   Markup.inlineKeyboard([
     [
-      Markup.button.callback("á ˆá‰€á‹µ", `ok_${id}`),
-      Markup.button.callback("áŠ¨áˆáŠ­áˆ", `no_${id}`),
+      Markup.button.callback("ፈቀድ", `ok_${id}`),
+      Markup.button.callback("ከልክል", `no_${id}`),
     ],
   ]);
 
-/* â”€â”€â”€ 9. CAPACITY TRACKING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 9. CAPACITY TRACKING ──────────────────────────────── */
 async function routeWeight(routeId) {
   const res = await Reg.aggregate([
     { $match: { routeId, status: { $in: ACTIVE } } },
@@ -427,19 +427,19 @@ async function checkCapacity(routeId) {
       bot.telegram
         .sendMessage(
           m.userId,
-          `*${ro.label}* â€” áŒáŠ á‰± áˆžáˆ á‰·áˆ !\n\náˆ áˆ«á‰°áŠžá‰»á‰½áŠ• á‰¤á‰µá‹Ž á‹áˆ°á‰ áˆ°á‰¡á‹Žá‰³áˆ â€” á‹ áŒ áŒ á‹áˆ áŠ'.\n${SUPPORT_PHONE}`,
+          `*${ro.label}* — ጭነቱ ሞልቷል!\n\nሠራተኞቻችን ቤትዎ ይሰበሰቡዎታል — ዝግጁ ይሁኑ.\n${SUPPORT_PHONE}`,
           { parse_mode: "Markdown" },
         )
         .catch(() => {});
     for (const aid of ADMIN_IDS)
       bot.telegram
-        .sendMessage(aid, `${ro.label} áˆžáˆ á‰·áˆ â€” ${total}/${ro.targetKg}áŠaáˆŽ | ${members.length} áˆ°á‹ `)
+        .sendMessage(aid, `${ro.label} ሞልቷል — ${total}/${ro.targetKg}ኪሎ | ${members.length} ሰው`)
         .catch(() => {});
     if (CHANNEL_ID)
       bot.telegram
         .sendMessage(
           CHANNEL_ID,
-          `*${ro.label}*\n${capLine(total, ro.targetKg)}\n\ná‹¨áŒ‹áˆ« áŒáŠ á‰µ â€” áˆáŠ«áˆ1⁄2 áŠ¥áŠ“ á ˆáŒ£áŠ|PHOON_SUPPO_{}`
+          `*${ro.label}*\n${capLine(total, ro.targetKg)}\n\nየጋራ ጭነት — ርካሽ እና ፈጣን!\n${SUPPORT_PHONE}`,
           { parse_mode: "Markdown" },
         )
         .catch(() => {});
@@ -470,10 +470,10 @@ async function checkGBCapacity(productId) {
       bot.telegram
         .sendMessage(
           m.userId,
-          `ðŸŽ‰ *${prod.emoji} ${prod.label} â€” áˆ á‹ áŒˆá‰£ áˆžáˆ á‰·áˆ !*\n\n` +
-            `áŒ á‰…áˆ‹áˆ‹: *${totalKg} ${ul}* | ${totalCount} áˆ°á‹ \n\n` +
-            `âœ… áˆ áˆá‰± áŠ¨áˆ áŠ•áŒ© á‹á‹˜á‹›áˆ â€” áŠ¨áˆ‚á‹°á‰± áˆˆáˆ›á‹ˆá‰… á‹áŒ á‰¥á‰ !\n\n` +
-            `á‹‹áŒ‹: *${prod.pricePerKg} á‰¥áˆ/${ul}*\náˆˆáŒ¥á‹«á‰„: ${SUPPORT_PHONE}`,
+          `🎉 *${prod.emoji} ${prod.label} — ምዝገባ ሞልቷል!*\n\n` +
+            `ጠቅላላ: *${totalKg} ${ul}* | ${totalCount} ሰው\n\n` +
+            `✅ ምርቱ ከምንጩ ይዘዛል — ከሂደቱ ለማወቅ ይጠብቁ!\n\n` +
+            `ዋጋ: *${prod.pricePerKg} ብር/${ul}*\nለጥያቄ: ${SUPPORT_PHONE}`,
           { parse_mode: "Markdown" },
         )
         .catch(() => {});
@@ -482,7 +482,7 @@ async function checkGBCapacity(productId) {
       bot.telegram
         .sendMessage(
           aid,
-          `âœ... *${prod.emoji} ${prod.label}* â€” âˆ a‹ âˆ°á‰£ âˆžáˆ Á‰·áˆ !\n${totalKg}/${prod.targetKg} ${ul} | ${totalCount} `,
+          `✅ *${prod.emoji} ${prod.label}* — ምዝገባ ሞልቷል!\n${totalKg}/${prod.targetKg} ${ul} | ${totalCount} ሰው`,
           { parse_mode: "Markdown" },
         )
         .catch(() => {});
@@ -491,9 +491,9 @@ async function checkGBCapacity(productId) {
       bot.telegram
         .sendMessage(
           CHANNEL_ID,
-          `*${prod.emoji} ${prod.label} â€” áˆá‹áŒˆá‰£ áˆžáˆá‰·áˆ!*\n\n` +
-            `${capLine(totalKg, prod.targetKg, ul)}\n` +
-            `á‰€áŒ¥á‰³ áŠ¨ áˆ áŠ•áŒ â€” *${prod.pricePerKg} á‰¥áˆ/${ul}*\n${SUPPORT_PHONE}`,
+          `*${prod.emoji} ${prod.label} — ምዝገባ ሞልቷል!*\n\n` +
+            `${capLine(totalKg, prod.targetKg, ul)}\n\n` +
+            `ቀጥታ ከ ምንጭ — *${prod.pricePerKg} ብር/${ul}*\n${SUPPORT_PHONE}`,
           { parse_mode: "Markdown" },
         )
         .catch(() => {});
@@ -504,7 +504,7 @@ async function checkGBCapacity(productId) {
   }
 }
 
-/* â”€â”€â”€ 10. AI PAYMENT CHECK â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 10. AI PAYMENT CHECK ──────────────────────────────── */
 async function checkPayment(fileId, reg) {
   if (!anthropic) return null;
   try {
@@ -541,15 +541,15 @@ const aiOk = (r) =>
   r?.amount_match && r?.account_match && !r?.looks_edited && r?.confidence === "high";
 const aiSummary = (r) =>
   !r
-    ? "AI áˆ›áˆ¨áŒ‹áŒˆáŒ« áŠ áˆ á‰°áˆ³áŠ«áˆ "
-    : `AI: ${aiOk(r) ? "á‰°áˆ¨áŒ‹áŒ áŒ§áˆ " : r?.looks_edited ? "áˆŠáˆµá‰°áŠ«áŠ¨áˆ á‹á‰½áˆ‹áˆ " : "áŠ áˆ á‰°áˆ¨áŒ‹áŒˆáŒ áˆ "} (${r.confidence}) ${r.reason || ""}`;
+    ? "AI ማረጋገጫ አልተሳካም"
+    : `AI: ${aiOk(r) ? "ተረጋግጧል" : r?.looks_edited ? "ሊስተካከል ይችላል" : "አልተረጋገጠም"} (${r.confidence}) ${r.reason || ""}`;
 
-/* â”€â”€â”€ 11. PRINT MANIFEST â”€â
+/* ─── 11. PRINT MANIFEST ────────────────────────────────── */
 const PRINT_STATUS = {
-  approved: "á ˆá‰ƒá‹µ á‹«áˆˆá‹ ",
-  reviewing: "áŠ¥á‹¨á‰°á ˆá‰°áˆ¸",
-  pending: "á‹«áˆ áŠ¨á ˆáˆˆ",
-  sent: "á‰°áˆ áŠ³áˆ ",
+  approved: "ፈቃድ ያለው",
+  reviewing: "እየተፈተሸ",
+  pending: "ያልከፈለ",
+  sent: "ተልኳል",
 };
 
 function buildManifestHTML(ro, list) {
@@ -566,22 +566,22 @@ function buildManifestHTML(ro, list) {
   const rows = sorted
     .map(
       (r, i) =>
-        `<tr><td>${i + 1}</td><td>${r.fullName || "â€”"}</td><td>${r.phone || "â€”"}</td><td>${r.cargoDesc || "â€”"}</td><td class="num">${r.weightKg || 0}</td><td class="status status-${r.status}">${PRINT_STATUS[r.status] || r.status}</td></tr>`,
+        `<tr><td>${i + 1}</td><td>${r.fullName || "—"}</td><td>${r.phone || "—"}</td><td>${r.cargoDesc || "—"}</td><td class="num">${r.weightKg || 0}</td><td class="status status-${r.status}">${PRINT_STATUS[r.status] || r.status}</td></tr>`,
     )
     .join("");
-  return `<!DOCTYPE html><html lang="am"><head><meta charset="UTF-8"><title>${ro.label} â€” á‹¨áŒ­áŠá‰µ á‹áˆ­á‹áˆ­</title><style>@page{size:A4;margin:14mm}*{box-sizing:border-box}body{font-family:'Noto Sans Ethiopic','Nyala',Arial,sans-serif;color:#1a1a1a;margin:0;padding:18px;font-size:13px}.letterhead{display:flex;justify-content:space-between;border-bottom:3px solid #1a3c6e;padding-bottom:10px;margin-bottom:14px}.letterhead h1{font-size:18px;margin:0 0 4px;color:#1a3c6e}.letterhead .meta{text-align:right;font-size:12px}.route-banner{background:#1a3c6e;color:#fff;padding:8px 14px;border-radius:4px;font-size:15px;font-weight:bold;margin-bottom:14px}.summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}.box{border:1px solid #ccc;border-radius:5px;padding:7px 13px;text-align:center;background:#f7f8fa;min-width:95px}.box .v{font-size:18px;font-weight:bold;color:#1a3c6e}.box .l{font-size:10px;color:#666;margin-top:2px}table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px}th{background:#1a3c6e;color:#fff;padding:7px 6px;text-align:left}td{padding:6px;border-bottom:1px solid #ddd}tr:nth-child(even){background:#f5f6f8}.num{text-align:center}.status{text-align:center;font-weight:bold;font-size:11px}.status-approved{color:#1a7d3b}.status-sent{color:#1565c0}.status-reviewing{color:#b8860b}.status-pending{color:#888}.footer{margin-top:30px;display:flex;justify-content:space-between;font-size:12px}.sign-box{width:45%}.sign-line{border-top:1px solid #333;margin-top:36px;padding-top:4px;text-align:center}.stamp-note{margin-top:26px;font-size:11px;color:#777;text-align:center}#printBtn{margin:16px 0;padding:10px 28px;font-size:14px;background:#1a3c6e;color:#fff;border:none;border-radius:6px;cursor:pointer}@media print{#printBtn{display:none}body{padding:0}}</style></head><body>
-<button id="printBtn" onclick="window.print()">á‹áˆ…áŠ• á •áˆªáŠ•á‰µ á‹«á‹µáˆáŒ‰</button>
-<div class="letterhead"><div><h1>á‹¨áŒ‹áˆ« áŒ­áŠá‰µ áŠ áŒˆáˆáŒáˆŽá‰µ</h1><div style="font-size:12px;color:#555">Cargo Group-Booking Manifest</div></div><div class="meta">${dateStr} &nbsp; ${timeStr}<br>${SUPPORT_PHONE}</div></div>
+  return `<!DOCTYPE html><html lang="am"><head><meta charset="UTF-8"><title>${ro.label} — የጭነት ዝርዝር</title><style>@page{size:A4;margin:14mm}*{box-sizing:border-box}body{font-family:'Noto Sans Ethiopic','Nyala',Arial,sans-serif;color:#1a1a1a;margin:0;padding:18px;font-size:13px}.letterhead{display:flex;justify-content:space-between;border-bottom:3px solid #1a3c6e;padding-bottom:10px;margin-bottom:14px}.letterhead h1{font-size:18px;margin:0 0 4px;color:#1a3c6e}.letterhead .meta{text-align:right;font-size:12px}.route-banner{background:#1a3c6e;color:#fff;padding:8px 14px;border-radius:4px;font-size:15px;font-weight:bold;margin-bottom:14px}.summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}.box{border:1px solid #ccc;border-radius:5px;padding:7px 13px;text-align:center;background:#f7f8fa;min-width:95px}.box .v{font-size:18px;font-weight:bold;color:#1a3c6e}.box .l{font-size:10px;color:#666;margin-top:2px}table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px}th{background:#1a3c6e;color:#fff;padding:7px 6px;text-align:left}td{padding:6px;border-bottom:1px solid #ddd}tr:nth-child(even){background:#f5f6f8}.num{text-align:center}.status{text-align:center;font-weight:bold;font-size:11px}.status-approved{color:#1a7d3b}.status-sent{color:#1565c0}.status-reviewing{color:#b8860b}.status-pending{color:#888}.footer{margin-top:30px;display:flex;justify-content:space-between;font-size:12px}.sign-box{width:45%}.sign-line{border-top:1px solid #333;margin-top:36px;padding-top:4px;text-align:center}.stamp-note{margin-top:26px;font-size:11px;color:#777;text-align:center}#printBtn{margin:16px 0;padding:10px 28px;font-size:14px;background:#1a3c6e;color:#fff;border:none;border-radius:6px;cursor:pointer}@media print{#printBtn{display:none}body{padding:0}}</style></head><body>
+<button id="printBtn" onclick="window.print()">ይህን ፕሪንት ያድርጉ</button>
+<div class="letterhead"><div><h1>የጋራ ጭነት አገልግሎት</h1><div style="font-size:12px;color:#555">Cargo Group-Booking Manifest</div></div><div class="meta">${dateStr} &nbsp; ${timeStr}<br>${SUPPORT_PHONE}</div></div>
 <div class="route-banner">${ro.emoji} ${ro.label}</div>
-<div class="summary"><div class="box"><div class="v">${list.length}</div><div class="l">áŒ á‰...áˆ‹áˆ‹ á‰°áˆ3á ‹áˆa</div></div></div_div_div><div><div class="v">${totalKg}</div><div class="l">áŒ á‰...áˆ‹áˆ‹ áŠaáˆŽ</div></div><div class="box"><div class="v">${cnt.approved + cnt.sent}</div. ˆá‰ƒá‹µ á‹«áˆ‹á‰¸á‹ </div></div><div class="box"><div class="v">${cnt.pending + cnt.reviewing}</div><div class="l">á‰ áˆ‚္°‰° áˆ‹á‹</div></div><div class="box"><div class="v">${totalReg.toLocaleString("en")}</div><div class="l">á‹¨áˆ á‹ áŒˆá‰£ áŠá á‹« (á‰¥áˆ)</div></div><div class="box"><div class="v">${totalShip.toLocaleString("en")}</div><div class="l">á‹¨áŒáŠ á‰µ áŠá á‹« (á↥/div)</div></></><>
-<table><thead><tr><th>#</th><th>áˆ™áˆ‰ áˆµáˆ</th><th>áˆµáˆáŠ­ á‰áŒ¥áˆ­</th><th>á‹¨áŒ­áŠá‰µ á‹“á‹­áŠá‰µ</th><th class="num">áŠªáˆŽ</th><th class="status">áˆáŠ”á‰³</th></tr></thead><tbody>${rows}</tbody></table>
-<div class="footer"><div class="sign-box"><div class="sign-line">á‹¨áˆ¹á áˆ áˆµáˆ áŠ¥áŠ“ á Šáˆáˆ› â€” Driver Name & Signature</div></div><div class="sign-box"><div class="sign-line">á‹¨á‰°áˆ¨áŠ¨á‰ á‰£áˆˆáˆ¥áˆ áŒ£áŠ• á Šáˆáˆ› â€” Receiving Officer Signature</div></div></div>
-<div class="stamp-note">á‹áˆ… áˆ°áŠ á‹µ á‰ ${ro.label} á‹¨áŒáŠ á‰µ áŒ‰á‹ž áˆ‹á‹ áˆˆá –áˆŠáˆµ/áŠ¬áˆ‹ áˆ›áˆ³á‹« áˆ°áŠ á‹µ áŠ á‹ á ¢</div>
+<div class="summary"><div class="box"><div class="v">${list.length}</div><div class="l">ጠቅላላ ተሳፋሪ</div></div><div class="box"><div class="v">${totalKg}</div><div class="l">ጠቅላላ ኪሎ</div></div><div class="box"><div class="v">${cnt.approved + cnt.sent}</div><div class="l">ፈቃድ ያላቸው</div></div><div class="box"><div class="v">${cnt.pending + cnt.reviewing}</div><div class="l">በሂደት ላይ</div></div><div class="box"><div class="v">${totalReg.toLocaleString("en")}</div><div class="l">የምዝገባ ክፍያ (ብር)</div></div><div class="box"><div class="v">${totalShip.toLocaleString("en")}</div><div class="l">የጭነት ክፍያ (ብር)</div></div></div>
+<table><thead><tr><th>#</th><th>ሙሉ ስም</th><th>ስልክ ቁጥር</th><th>የጭነት ዓይነት</th><th class="num">ኪሎ</th><th class="status">ሁኔታ</th></tr></thead><tbody>${rows}</tbody></table>
+<div class="footer"><div class="sign-box"><div class="sign-line">የሹፍር ስም እና ፊርማ — Driver Name &amp; Signature</div></div><div class="sign-box"><div class="sign-line">የተረከበ ባለሥልጣን ፊርማ — Receiving Officer Signature</div></div></div>
+<div class="stamp-note">ይህ ሰነድ በ${ro.label} የጭነት ጉዞ ላይ ለፖሊስ/ኬላ ማሳያ ሰነድ ነው።</div>
 <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),400));</script></body></html>`;
 }
 
 async function sendDocumentWithRetry(chatId, doc, extra, retries = 4) {
-  Lasterr’s letter;
+  let lastErr;
   for (let i = 0; i < retries; i++) {
     try {
       return await bot.telegram.sendDocument(chatId, doc, extra);
@@ -595,13 +595,13 @@ async function sendDocumentWithRetry(chatId, doc, extra, retries = 4) {
 
 async function handlePrint(ctx, routeId) {
   const ro = byRoute(routeId);
-  if (!ro) { await ctx.reply("áˆ˜áˆµáˆ˜áˆ­ áŠ áˆá‰°áŒˆáŠ˜áˆ"); return; }
+  if (!ro) { await ctx.reply("መስመር አልተገኘም"); return; }
   let waitMsg;
   try {
-    waitMsg = await ctx.reply("Please send me the message...");
+    waitMsg = await ctx.reply("ሰነዱ እየተዘጋጀ ነው፣ ትንሽ ይጠብቁ...");
     const list = await Reg.find({ routeId, status: { $ne: "rejected" } })
       .sort({ createdAt: 1 }).lean();
-    if (!list.length) { await ctx.reply(`${ro.emoji} ${ro.label} â€” áˆá‹áŒˆá‰£ á‹¨áˆˆáˆ`); return; }
+    if (!list.length) { await ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም`); return; }
     const totalKg = list.reduce((s, r) => s + (r.weightKg || 0), 0);
     const html = buildManifestHTML(ro, list),
       buf = Buffer.from(html, "utf-8");
@@ -610,21 +610,21 @@ async function handlePrint(ctx, routeId) {
       ctx.chat.id,
       { source: buf, filename: fname },
       {
-        caption: `*${ro.label}* â€” á •áˆaáŠ•á‰µ á‹ áŒ áŒ áˆ°áŠ á‹µ\n${list.length} áˆ°á‹ | ${totalKg} áŠaáˆŽ\n\ná   ‹†á•á á‹áŠá ˆá‰± â€” á •áˆaáŠ•á‰μ á‹áŠ ̈á ˆá‰3áˆ `,
+        caption: `*${ro.label}* — ፕሪንት ዝግጁ ሰነድ\n${list.length} ሰው | ${totalKg} ኪሎ\n\nፋይሉን ይክፈቱ — ፕሪንት ይከፈታል`,
         parse_mode: "Markdown",
       },
     );
     if (waitMsg) bot.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
   } catch (e) {
     console.error("handlePrint:", e.message);
-    await ctx.reply("á ‹á‹áˆ‰áŠ• áˆ˜áˆ‹áŠ áŠ áˆ á‰°áˆ³áŠ«áˆ \n\ná‰µáŠ•áˆ½ á‰†á‹á‰°á‹ áŠ¥áŠ•á‹°áŒˆáŠ" á‹áˆžáŠáˆ©á ¢").catch(() => {});
+    await ctx.reply("ፋይሉን መላክ አልተሳካም\n\nትንሽ ቆይተው እንደገና ይሞክሩ።").catch(() => {});
   }
 }
 
-/* â”€â”€â”€ 12. DAILY REPORT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 12. DAILY REPORT ──────────────────────────────────── */
 async function sendDailyReport() {
   if (!ADMIN_IDS.length) return;
-  let txt = `á‹•áˆˆá‰³á‹Š áˆªá –áˆá‰µ â€” ${new Date().toLocaleDateString("am-ET")}\n\n`;
+  let txt = `ዕለታዊ ሪፖርት — ${new Date().toLocaleDateString("am-ET")}\n\n`;
   let gKg = 0, gPeople = 0, gPending = 0;
   for (const ro of ROUTES) {
     const counts = await Reg.aggregate([
@@ -641,9 +641,9 @@ async function sendDailyReport() {
     gPeople += people;
     gPending += (m.pending?.n || 0) + (m.reviewing?.n || 0);
     if (!people) continue;
-    txt += `${ro.emoji} ${ro.label}\n${people} áˆ°á‹ | ${kg} áŠaáˆŽ | á ˆá‰ƒá‹μ: ${m.approved?.n || 0} | á á‰°áˆ»: ${m.reviewing?.n || 0} | á‹«áˆ áŠ ̈á ˆáˆˆ: ${m.pending?.n || 0} | á‰°áˆ áŠ3áˆ : ${m.sent?.n || 0}\n\n`;
+    txt += `${ro.emoji} ${ro.label}\n${people} ሰው | ${kg} ኪሎ | ፈቃድ: ${m.approved?.n || 0} | ፍተሻ: ${m.reviewing?.n || 0} | ያልከፈለ: ${m.pending?.n || 0} | ተልኳል: ${m.sent?.n || 0}\n\n`;
   }
-  txt += `áŒ á‰…áˆ‹áˆ‹: ${gPeople} áˆ°á‹ | ${gKg} áŠªáˆŽ | á‹«áˆ á‰°á ˆá‰€á‹±: ${gPending}\náˆ á‹ : ${(gKg * REG_PER_KG).toLocaleString()} á‰¥ | áŒ: ${(gKg * SHIP_PER_KG).toLocaleString()} á‰¥`;
+  txt += `ጠቅላላ: ${gPeople} ሰው | ${gKg} ኪሎ | ያልተፈቀዱ: ${gPending}\nምዝ: ${(gKg * REG_PER_KG).toLocaleString()} ብ | ጭ: ${(gKg * SHIP_PER_KG).toLocaleString()} ብ`;
   for (const aid of ADMIN_IDS) bot.telegram.sendMessage(aid, txt).catch(() => {});
 }
 
@@ -659,8 +659,8 @@ function startDailyReportScheduler() {
   }, 60_000);
 }
 
-/* â”€â”€â”€ 13. BOT + MIDDLEWARE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-const bot = new Telegraph(BOT_TOKEN, {
+/* ─── 13. BOT + MIDDLEWARE ──────────────────────────────── */
+const bot = new Telegraf(BOT_TOKEN, {
   handlerTimeout: 120_000,
   telegram: { timeout: 120 },
 });
@@ -672,7 +672,7 @@ bot.use(async (ctx, next) => {
   if (!uid) return next();
   if (isAdmin(ctx)) return next();
   if (isRateLimited(uid)) {
-    return ctx.reply("â›” á‰¥á‹™ áŒ¥á‹«á‰„ áˆ áŠ¨á‹‹áˆ â€” áŠ¨ 10 á‹°á‰‚á‰ƒ á‰ áŠ‹áˆ‹ á‹áˆžáŠáˆ©á ¢").catch(() => {});
+    return ctx.reply("⛔ ብዙ ጥያቄ ልከዋል — ከ 10 ደቂቃ በኋላ ይሞክሩ።").catch(() => {});
   }
   return next();
 });
@@ -681,50 +681,50 @@ bot.catch((err, ctx) => {
   console.error("Bot error:", err?.message, ctx?.updateType);
   for (const aid of ADMIN_IDS)
     bot.telegram
-      .sendMessage(aid, `âš ï¸ Bot Error: ${err?.message || "unknown"}\nUpdate: ${ctx?.updateType || "â€”"}`)
+      .sendMessage(aid, `⚠️ Bot Error: ${err?.message || "unknown"}\nUpdate: ${ctx?.updateType || "—"}`)
       .catch(() => {});
 });
 
-/* â”€â”€â”€ 14. WELCOME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 14. WELCOME ───────────────────────────────────────── */
 function welcomeText(name) {
   return (
-    `ðŸ'‹ *áŠ¥áŠ•áŠ³áŠ• á‹ˆá‹° Group Buying á‰ á‹°áˆ…áŠ“ áˆ˜áŒ¡, ${name}!*\n\n` +
-    `2ï¸ âƒ£ áˆ áˆá‰µáŠ• á‰€áŒ¥á‰³ áŠ¨á ‹á‰¥áˆªáŠ«áŠ“ áŠ¨áŒˆá‰ áˆ¬á‹Žá‰½ á‰ áˆ›áˆ áŒ£á‰µ á‹¨áŠ'áˆ® á‹ á‹µáŠ á‰±áŠ• áˆˆáˆ˜áŒ£áˆ á‰°áŠ áˆµá‰°áŠ“áˆ á ¢\n\n` +
-    `3ï¸ âƒ£ á‰ áŒ‹áˆ« áŒ á‹¥ (Group Buying) á‰ áŠ áŠ•á‹µ áˆ‹á‹ á‰ áˆ˜áˆ†áŠ• áˆ›áŠ•áŠ›á‹ áŠ•áˆ á‹•á‰ƒ á‰ áŒ…áˆ áˆ‹ á‹‹áŒ‹ áŠ¨á ‹á‰¥áˆªáŠ« áŠ¥áŠ“ á‰ á‰€áŒ¥á‰³ áŠ¨ áŒˆá‰ áˆ¬á‹ áŠ¥áŠ•áŒˆá‹›áˆˆáŠ•á ¢\n\n` +
-    `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â” \n` +
-    `ðŸ“‹ *á‹¨áˆ á‹ áŒˆá‰£ áŠá á‹«:* ${REG_PER_KG} á‰¥áˆ/áŠªáˆŽ\n` +
-    `_á‹¨áˆ áˆá‰µ á‹‹áŒ‹ áˆ á‹ áŒˆá‰£ áˆ²áˆžáˆ‹ á‹áŒ á‹¨á‰ƒáˆ‰_\n\n` +
-    `ðŸ“ž áˆˆáŒ¥á‹«á‰„: ${SUPPORT_PHONE}\n\n` +
-    `*áŠ¨á‹šáˆ… á‰ á‰³á‰½ áˆ áˆá‰µ á‹ˆá‹áˆ áŠ á‰…áŒ£áŒ« á‹áˆ áˆ¨áŒ¡:*`
+    `👋 *እንኳን ወደ Group Buying በደህና መጡ, ${name}!*\n\n` +
+    `2️⃣ ምርትን ቀጥታ ከፋብሪካና ከገበሬዎች በማምጣት የኑሮ ውድነቱን ለመጣል ተነስተናል።\n\n` +
+    `3️⃣ በጋራ ግዥ (Group Buying) በአንድ ላይ በመሆን ማንኛውንም ዕቃ በጅምላ ዋጋ ከፋብሪካ እና በቀጥታ ከ ገበሬው እንገዛለን።\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `📋 *የምዝገባ ክፍያ:* ${REG_PER_KG} ብር/ኪሎ\n` +
+    `_የምርት ዋጋ ምዝገባ ሲሞላ ይጠየቃሉ_\n\n` +
+    `📞 ለጥያቄ: ${SUPPORT_PHONE}\n\n` +
+    `*ከዚህ በታች ምርት ወይም አቅጣጫ ይምረጡ:*`
   );
 }
 
 bot.start(async (ctx) => {
   ctx.session = {};
-  await ctx.reply(welcomeText(ctx.from?.first_name || "áŠ¥áŠ•áŠ³áŠ• á‹°áˆ…áŠ“ áˆ˜áŒ¡"), {
+  await ctx.reply(welcomeText(ctx.from?.first_name || "እንኳን ደህና መጡ"), {
     parse_mode: "Markdown",
     ...(await mainKb(ctx.from?.id)),
   });
 });
 bot.command("help", async (ctx) => {
   ctx.session = {};
-  await ctx.reply(welcomeText(ctx.from?.first_name || "áŠ¥áŠ•áŠ³áŠ• á‹°áˆ…áŠ“ áˆ˜áŒ¡"), {
+  await ctx.reply(welcomeText(ctx.from?.first_name || "እንኳን ደህና መጡ"), {
     parse_mode: "Markdown",
     ...(await mainKb(ctx.from?.id)),
   });
 });
 
-/* â”€â”€â”€ 15. á‰†áŒ£áˆª / áˆ á‹ áŒˆá‰£á‹¬ â”€â
-bot.hears("ðŸ“Š á‹¨áŒáŠ á‰µ á‰†áŒ£áˆa", async (ctx) => {
+/* ─── 15. ቆጣሪ / ምዝገባዬ ─────────────────────────────────── */
+bot.hears("📊 የጭነት ቆጣሪ", async (ctx) => {
   if (!isAdmin(ctx) && !(await getSetting("menu_counter", true)))
-    return ctx.reply("Please contact us: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
+    return ctx.reply("ይህ አገልግሎት አሁን አልተከፈተም።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
   ctx.session = {};
-  let txt = "*á‹¨áŒáŠ á‰µ áˆ áŠ”á‰³*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n*áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ *\n\n";
+  let txt = "*የጭነት ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n*አዲስ አበባ → አማራ ክልል*\n\n";
   for (const ro of ROUTES_TO_AMHARA) {
     const total = await routeWeight(ro.id);
     txt += `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n\n`;
   }
-  txt += "*áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£*\n\n";
+  txt += "*አማራ ክልል → አዲስ አበባ*\n\n";
   for (const ro of ROUTES_TO_AA) {
     const total = await routeWeight(ro.id);
     txt += `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n\n`;
@@ -732,9 +732,9 @@ bot.hears("ðŸ“Š á‹¨áŒáŠ á‰µ á‰†áŒ£áˆa", async (ctx) =
   await ctx.reply(txt, { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) });
 });
 
-bot.hears("ðŸ“‹ á‹¨áˆ á‹ áŒˆá‰£ á‹ áˆá‹ áˆ¬", async (ctx) => {
+bot.hears("📋 የምዝገባ ዝርዝሬ", async (ctx) => {
   if (!isAdmin(ctx) && !(await getSetting("menu_my_regs", true)))
-    return ctx.reply("Please contact us: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
+    return ctx.reply("ይህ አገልግሎት አሁን አልተከፈተም።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
   ctx.session = {};
   const regs = await Reg.find({
     userId: ctx.from.id,
@@ -744,12 +744,12 @@ bot.hears("ðŸ“‹ á‹¨áˆ á‹ áŒˆá‰£ á‹ áˆá‹ áˆ¬", a
   const gbRegs = await GBReg.find({ userId: ctx.from.id }).sort({ createdAt: -1 }).lean();
 
   if (!regs.length && !gbRegs.length)
-    return ctx.reply("áˆá‹áŒˆá‰£ áŠ áˆá‰°áŒˆáŠ˜áˆ", await mainKb(ctx.from?.id));
+    return ctx.reply("ምዝገባ አልተገኘም", await mainKb(ctx.from?.id));
 
   for (const r of regs) {
-    const btns = [Markup.button.callback("áˆ°áˆ­á‹", `del_${r._id}`)];
+    const btns = [Markup.button.callback("ሰርዝ", `del_${r._id}`)];
     if (!r.locationLat && ACTIVE.includes(r.status))
-      btns.push(Markup.button.callback("áŠ á‹µáˆ«áˆ» áˆ‹áŠ", `addloc_${r._id}`));
+      btns.push(Markup.button.callback("አድራሻ ላክ", `addloc_${r._id}`));
     await ctx.reply(card(r), {
       parse_mode: "Markdown",
       ...Markup.inlineKeyboard([btns]),
@@ -767,15 +767,15 @@ bot.hears("ðŸ“‹ á‹¨áˆ á‹ áŒˆá‰£ á‹ áˆá‹ áˆ¬", a
     const regCount = agg[0]?.count || 0;
     await ctx.reply(
       `${prod?.emoji} *${prod?.label}*\n` +
-        `áˆµáˆ: ${g.fullName} | áˆµáˆáŠ­: ${g.phone}\n` +
-        `á‰°áˆ˜á‹áŒá‰§áˆ: *${g.weightKg} ${ul}*\n` +
+        `ስም: ${g.fullName} | ስልክ: ${g.phone}\n` +
+        `ተመዝግቧል: *${g.weightKg} ${ul}*\n` +
         `${capLine(regKg, prod?.targetKg || 5000, ul)}\n` +
-        `ðŸ'¥ á‰°áˆ³á‰³á Š: ${regCount} áˆ°á‹ \n\n` +
-        `ðŸ'¤ áˆ™áˆ‰ áˆµáˆ á‹ŽáŠ• á‹«áˆµáŒˆá‰¡:`,
+        `👥 ተሳታፊ: ${regCount} ሰው\n\n` +
+        `👤 ሙሉ ስምዎን ያስገቡ:`,
       {
         parse_mode: "Markdown",
         ...Markup.inlineKeyboard([
-          [Markup.button.callback("âž• áŠªáˆŽ áŒ¨áˆ áˆ", `gb_addkg_${g._id}`)],
+          [Markup.button.callback("➕ ኪሎ ጨምር", `gb_addkg_${g._id}`)],
         ]),
       },
     );
@@ -787,14 +787,14 @@ bot.action(/^addloc_([a-f\d]{24})$/i, async (ctx) => {
   const r = await Reg.findById(ctx.match[1]).lean();
   if (!r || r.userId !== ctx.from?.id) return;
   ctx.session = { step: "LOC", locRegId: String(r._id) };
-  await ctx.reply("áŠ á‹µáˆ«áˆ»á‹ŽáŠ• á‹«áŒ‹áˆ©:", locKb());
+  await ctx.reply("አድራሻዎን ያጋሩ:", locKb());
 });
 
-/* â”€â”€â”€ 16. GROUP BUYING PRODUCT MENU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 16. GROUP BUYING PRODUCT MENU ────────────────────── */
 for (const prod of GB_PRODUCTS) {
   bot.hears(`${prod.emoji} ${prod.label}`, async (ctx) => {
     if (!isAdmin(ctx) && !(await getSetting(`menu_product_${prod.id}`, true)))
-      return ctx.reply("á‹áˆ… áˆ áˆá‰µ áŠ áˆ áŠ• áŠ áˆ á‰°áŠ¨á ˆá‰°áˆ á ¢\náˆˆáŒ¥á‹«á‰„: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
+      return ctx.reply("ይህ ምርት አሁን አልተከፈተም።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
     ctx.session = { step: "GB_NAME", gbProductId: prod.id };
     const ul = unitLabel(prod);
     const agg = await GBReg.aggregate([
@@ -804,18 +804,18 @@ for (const prod of GB_PRODUCTS) {
     const regKg = agg[0]?.kg || 0;
     const regCount = agg[0]?.count || 0;
     await ctx.reply(
-      `${prod.emoji} *${prod.label}*\nâ”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”\n\n` +
-        `ðŸ'° á‹¨áˆ áˆá‰µ á‹‹áŒ‹: *${prod.pricePerKg} á‰¥áˆ/${ul}*\n` +
-        `ðŸ“‹ á‹¨áŠ áŒˆáˆ áŒ áˆŽá‰µ áŠá á‹«: *${REG_PER_KG} á‰¥áˆ/${ul}*\n\n` +
+      `${prod.emoji} *${prod.label}*\n━━━━━━━━━━━━━━━━\n\n` +
+        `💰 የምርት ዋጋ: *${prod.pricePerKg} ብር/${ul}*\n` +
+        `📋 የአገልግሎት ክፍያ: *${REG_PER_KG} ብር/${ul}*\n\n` +
         `${capLine(regKg, prod.targetKg, ul)}\n` +
-        `ðŸ'¥ á‰°áˆ³á‰³á Š: ${regCount} áˆ°á‹ \n\n` +
-        `ðŸ'¤ áˆ™áˆ‰ áˆµáˆ á‹ŽáŠ• á‹«áˆµáŒˆá‰¡:`,
+        `👥 ተሳታፊ: ${regCount} ሰው\n\n` +
+        `👤 ሙሉ ስምዎን ያስገቡ:`,
       { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
     );
   });
 }
 
-/* â”€â”€â”€ 17. ROUTE SELECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 17. ROUTE SELECTION ───────────────────────────────── */
 async function startRegistration(ctx, route) {
   const ex = await Reg.findOne({
     userId: ctx.from.id,
@@ -823,35 +823,35 @@ async function startRegistration(ctx, route) {
   }).lean();
   if (ex) {
     const ro = byRoute(ex.routeId);
-    const btns = [Markup.button.callback("áˆ°áˆ­á‹", `del_${ex._id}`)];
-    if (!ex.locationLat) btns.push(Markup.button.callback("áŠ á‹µáˆ«áˆ» áˆ‹áŠ­", `addloc_${ex._id}`));
+    const btns = [Markup.button.callback("ሰርዝ", `del_${ex._id}`)];
+    if (!ex.locationLat) btns.push(Markup.button.callback("አድራሻ ላክ", `addloc_${ex._id}`));
     return ctx.reply(
-      `âš ï¸ _áŠ áŠ•á‹µ áˆ á‹ áŒˆá‰£ á‰¥á‰» á‹á ˆá‰€á‹³áˆ _\n\n` + card(ex) + `\n\n_áˆŒáˆ‹ áˆˆáˆ˜áˆ˜á‹ áŒˆá‰¥ á‰€á‹°áˆ™áŠ• áˆ°áˆá‹˜á‹ á‹áˆžáŠáˆ©_`,
+      `⚠️ _አንድ ምዝገባ ብቻ ይፈቀዳል_\n\n` + card(ex) + `\n\n_ሌላ ለመመዝገብ ቀደሙን ሰርዘው ይሞክሩ_`,
       { parse_mode: "Markdown", ...Markup.inlineKeyboard([btns]) },
     );
   }
   ctx.session = { step: "NAME", routeId: route.id, d: {} };
-  await ctx.reply(`${route.emoji} *${route.label}*\n\náˆ™áˆ‰ áˆµáˆá‹ŽáŠ• á‹«áˆµáŒˆá‰¡:`, {
+  await ctx.reply(`${route.emoji} *${route.label}*\n\nሙሉ ስምዎን ያስገቡ:`, {
     parse_mode: "Markdown",
     ...(await mainKb(ctx.from?.id)),
   });
 }
 
-bot.hears("ðŸ”¼ áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ ", async (ctx) => {
-  if (! isAdmin(ctx) && !(await getSetting("load_menu_toamhara", true)))
-    return ctx.reply("Please contact us for more information: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
+bot.hears("🔼 አዲስ አበባ → አማራ ክልል", async (ctx) => {
+  if (!isAdmin(ctx) && !(await getSetting("menu_cargo_toamhara", true)))
+    return ctx.reply("ይህ አቅጣጫ አሁን ጊዜያዊ ተዘግቷል።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
   ctx.session = {};
-  await ctx.reply("*áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ * â€” áˆ˜áˆµáˆ˜áˆ á‹áˆ áˆ¨áŒ¡:", {
+  await ctx.reply("*አዲስ አበባ → አማራ ክልል* — መስመር ይምረጡ:", {
     parse_mode: "Markdown",
     ...dirRoutesKb(ROUTES_TO_AMHARA),
   });
 });
 
-bot.hears("ðŸ”½ áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£", async (ctx) => {
+bot.hears("🔽 አማራ ክልል → አዲስ አበባ", async (ctx) => {
   if (!isAdmin(ctx) && !(await getSetting("menu_cargo_toaa", true)))
-    return ctx.reply("Please contact us for more information: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
+    return ctx.reply("ይህ አቅጣጫ አሁን ጊዜያዊ ተዘግቷል።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
   ctx.session = {};
-  await ctx.reply("*áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£* â€” áˆ˜áˆµáˆ˜áˆ á‹áˆ áˆ¨áŒ¡:", {
+  await ctx.reply("*አማራ ክልል → አዲስ አበባ* — መስመር ይምረጡ:", {
     parse_mode: "Markdown",
     ...dirRoutesKb(ROUTES_TO_AA),
   });
@@ -868,16 +868,16 @@ bot.action(/^more_(.+)$/, async (ctx) => {
   const route = byRoute(ctx.match[1]);
   if (!route) return;
   ctx.session = { step: "NAME", routeId: route.id, d: {} };
-  await ctx.reply(`${route.emoji} *${route.label}* â€” áˆŒáˆ‹ áŠ¥á‰ƒ áŒ¨áˆ áˆ\n\náˆ™áˆ‰ áˆµáˆ á‹ŽáŠ• á‹«áˆµáŒˆá‰¡:`, {
+  await ctx.reply(`${route.emoji} *${route.label}* — ሌላ እቃ ጨምር\n\nሙሉ ስምዎን ያስገቡ:`, {
     parse_mode: "Markdown",
     ...(await mainKb(ctx.from?.id)),
   });
 });
 
-/* â”€â”€â”€ 18. PAYMENT METHOD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 18. PAYMENT METHOD ────────────────────────────────── */
 bot.action(/^pm_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  if ( ctx . session ? . step ! == " PAYMETHOD " ) return ;
+  if (ctx.session?.step !== "PAYMETHOD") return;
   const m = byMethod(ctx.match[1]);
   if (!m) return;
   const { d, routeId } = ctx.session;
@@ -899,16 +899,16 @@ bot.action(/^pm_(.+)$/, async (ctx) => {
   const acct = m.info.includes(":") ? m.info.split(":").slice(1).join(":").trim() : m.info;
   await ctx.reply(
     `${m.emoji} *${m.label}*\n` +
-      `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â” \n` +
-      `á‰ áŒ¥áˆ: \`${acct}\`\n\n` +
-      `*á‹¨áˆ á‹ áŒˆá‰£ áŠá á‹«: ${r.totalPrice} á‰¥áˆ* (${d.kg} áŠªáˆŽ Ã— ${REG_PER_KG} á‰¥áˆ/áŠªáˆŽ)\n\n` +
-      `âš ï¸ áŠá á‹« áŠ¨á ˆáŒ¸áˆ™ á‰ áŠ‹áˆ‹ *á‹¨á‹°áˆ¨áˆ°áŠ á Žá‰¶ (screenshot)* á‹áˆ‹áŠ©á ¢\n` +
-      `á Žá‰¶ áˆ³á‹áˆ áŠ© áˆ á‹ áŒˆá‰£ áŠ á‹áŒ áŠ“á‰€á‰…áˆ !`,
+      `━━━━━━━━━━━━━━━━\n` +
+      `ቁጥር: \`${acct}\`\n\n` +
+      `*የምዝገባ ክፍያ: ${r.totalPrice} ብር* (${d.kg} ኪሎ × ${REG_PER_KG} ብር/ኪሎ)\n\n` +
+      `⚠️ ክፍያ ከፈጸሙ በኋላ *የደረሰኝ ፎቶ (screenshot)* ይላኩ።\n` +
+      `ፎቶ ሳይልኩ ምዝገባ አይጠናቀቅም!`,
     { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
   );
 });
 
-/* â”€â”€â”€ 19. TEXT FLOW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 19. TEXT FLOW ─────────────────────────────────────── */
 bot.on("text", async (ctx, next) => {
   const { step } = ctx.session || {};
   if (!step) return next();
@@ -916,67 +916,67 @@ bot.on("text", async (ctx, next) => {
 
   if (isSuspicious(txt)) {
     console.warn(`Suspicious input from ${ctx.from?.id}: ${txt.slice(0, 80)}`);
-    return ctx.reply("â›” á‰µáŠáŠáˆˆáŠ› á‹«áˆ áˆ†áŠ áŒ á‰¥á‹“á‰µ â€” áˆ á‹ áŒˆá‰£ á‰°áˆ°áˆá‹Ÿáˆ á ¢").catch(() => {});
+    return ctx.reply("⛔ ትክክለኛ ያልሆነ ግብዓት — ምዝገባ ተሰርዟል።").catch(() => {});
   }
 
   const reserved = [
-    "ðŸ“‹ á‹¨áˆ á‹ áŒˆá‰£ á‹ áˆá‹ áˆ¬",
-    "ðŸ“Š á‹¨áŒáŠ á‰µ á‰†áŒ£áˆª",
-    "ðŸ”§ Admin",
-    "â ï¸ áˆ³áˆ‹áŒ‹áˆ« áŒ¨áˆáˆµ",
-    "ðŸ”¼ áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ ",
-    "ðŸ”½ áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£",
+    "📋 የምዝገባ ዝርዝሬ",
+    "📊 የጭነት ቆጣሪ",
+    "🔧 Admin",
+    "⏭️ ሳላጋራ ጨርስ",
+    "🔼 አዲስ አበባ → አማራ ክልል",
+    "🔽 አማራ ክልል → አዲስ አበባ",
     ...GB_PRODUCTS.map((p) => `${p.emoji} ${p.label}`),
   ];
   if (reserved.includes(txt)) return next();
 
   if (step === "GB_NAME") {
-    if (txt.length < 3) return ctx.reply("áˆ™áˆ‰ áˆµáˆ á‹«áˆµáŒˆá‰¡ (3+ áŠá‹°áˆ)");
+    if (txt.length < 3) return ctx.reply("ሙሉ ስም ያስገቡ (3+ ፊደል)");
     ctx.session.gbName = txt;
     ctx.session.step = "GB_PHONE";
-    return ctx.reply("áˆµáˆ áŠ á‰ áŒ¥áˆá‹ŽáŠ• á‹«áˆµáŒˆá‰¡ (áˆ áˆ³áˆŒ: 0912345678):");
+    return ctx.reply("ስልክ ቁጥርዎን ያስገቡ (ምሳሌ: 0912345678):");
   }
 
   if (step === "GB_PHONE") {
     const phone = txt.replace(/\s/g, "");
     if (!/^0[79]\d{8}$/.test(phone) && !/^\+251[79]\d{8}$/.test(phone))
-      return ctx.reply("á‰µáŠáŠáˆˆáŠ› áˆµáˆ áŠ á‹«áˆµáŒˆá‰¡\náˆ áˆ³áˆŒ: 0912345678");
+      return ctx.reply("ትክክለኛ ስልክ ያስገቡ\nምሳሌ: 0912345678");
     ctx.session.gbPhone = phone;
     ctx.session.step = "GB_KG";
     const prod = byProduct(ctx.session.gbProductId);
     const ul = unitLabel(prod);
     return ctx.reply(
-      `áˆ áŠ• á‹«áˆ…áˆ *${ul}* *${prod?.label}* á‹á ˆáˆ áŒ‹áˆ‰?\n` +
-        `_(1 ${ul} = ${prod?.pricePerKg} á‰¥áˆ)_\n\ná‰ áŒ¥áˆ á‹«áˆµáŒˆá‰¡:`,
+      `ምን ያህል *${ul}* *${prod?.label}* ይፈልጋሉ?\n` +
+        `_(1 ${ul} = ${prod?.pricePerKg} ብር)_\n\nቁጥር ያስገቡ:`,
       { parse_mode: "Markdown" },
     );
   }
 
   if (step === "GB_KG") {
     const kg = parseFloat(txt.replace(/[^0-9.]/g, ""));
-    if (!kg || kg <= 0 || kg > 5000) return ctx.reply("á‰µáŠ­áŠ­áˆˆáŠ› á‰áŒ¥áˆ­ á‹«áˆµáŒˆá‰¡ (1â€“5000)");
+    if (!kg || kg <= 0 || kg > 5000) return ctx.reply("ትክክለኛ ቁጥር ያስገቡ (1–5000)");
     const prod = byProduct(ctx.session.gbProductId);
     const ul = unitLabel(prod);
     const serviceFee = Math.round(kg * REG_PER_KG);
     ctx.session.gbKg = kg;
     ctx.session.step = "GB_CONFIRM";
     return ctx.reply(
-      `ðŸ“‹ *á‹¨áˆ á‹ áŒˆá‰£ áˆ›áˆ¨áŒ‹áŒˆáŒ«*\n` +
-        `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â” \n` +
-        `${prod?.emoji} *${prod?.label}*  â€¢  ${kg} ${ul}\n` +
-        `ðŸ'¤ ${ctx.session.gbName} | ðŸ“ž ${ctx.session.gbPhone}\n\n` +
-        `ðŸ'° á‹¨áˆ áˆá‰µ á‹‹áŒ‹: ${prod?.pricePerKg} á‰¥áˆ/${ul}\n` +
-        `ðŸ“‹ *á‹¨áŠ áŒˆáˆ áŒ áˆŽá‰µ áŠá á‹«:*\n` +
-        ` ${kg} ${ul} Ã— ${REG_PER_KG} á‰¥áˆ = *${serviceFee.toLocalString()} á‰¥áˆ* âœ…\n\n` +
-        `âš ï¸ _á‹áˆ… áŠá á‹« á‰¥á‰» áˆˆ bot á‹áŠ¨á ˆáˆ‹áˆ â€” á‹¨áˆ áˆá‰µ á‹‹áŒ‹ áˆ á‹ áŒˆá‰£ áˆ²áˆžáˆ‹ á‹áŒ á‹¨á‰ƒáˆ‰_\n\n` +
-        `What is the name of the city?`,
+      `📋 *የምዝገባ ማረጋገጫ*\n` +
+        `━━━━━━━━━━━━━━━━\n` +
+        `${prod?.emoji} *${prod?.label}*  •  ${kg} ${ul}\n` +
+        `👤 ${ctx.session.gbName}  |  📞 ${ctx.session.gbPhone}\n\n` +
+        `💰 የምርት ዋጋ: ${prod?.pricePerKg} ብር/${ul}\n` +
+        `📋 *የአገልግሎት ክፍያ:*\n` +
+        `   ${kg} ${ul} × ${REG_PER_KG} ብር = *${serviceFee.toLocaleString()} ብር* ✅\n\n` +
+        `⚠️ _ይህ ክፍያ ብቻ ለ bot ይከፈላል — የምርት ዋጋ ምዝገባ ሲሞላ ይጠየቃሉ_\n\n` +
+        `ምዝገባ ያረጋግጡ?`,
       {
         parse_mode: "Markdown",
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "âœ… áŠ áˆ¨áŒ‹áŒ áŒ¥áŠ“ áˆ á‹ áŒˆá‰¥", callback_data: "gb_confirm_yes" },
-              { text: "âŒ áˆ°áˆ­á‹", callback_data: "gb_confirm_no" },
+              { text: "✅ አረጋግጥና ምዝገብ", callback_data: "gb_confirm_yes" },
+              { text: "❌ ሰርዝ", callback_data: "gb_confirm_no" },
             ],
           ],
         },
@@ -984,7 +984,7 @@ bot.on("text", async (ctx, next) => {
     );
   }
 
-  if (step === "GB_CONFIRM") return ctx.reply("Please confirm your entry");
+  if (step === "GB_CONFIRM") return ctx.reply("ከዚህ በታች ያሉትን ቁልፎች ይጠቀሙ 👆");
 
   if (step === "GB_ADDKG") {
     const newTotal = parseFloat(txt.replace(/[^0-9.]/g, ""));
@@ -992,10 +992,10 @@ bot.on("text", async (ctx, next) => {
     const prod = byProduct(gbAddProductId);
     const ul = unitLabel(prod);
     if (!newTotal || newTotal <= 0 || newTotal > 5000)
-      return ctx.reply("á‰µáŠáŠáˆˆáŠ› á‰ áŒ¥áˆ á‹«áˆµáŒˆá‰¡ (1â€“5000)");
+      return ctx.reply("ትክክለኛ ቁጥር ያስገቡ (1–5000)");
     if (newTotal <= gbAddOldKg)
       return ctx.reply(
-        `âš ï¸ áŠ áˆ áŠ• *${gbAddOldKg} ${ul}* á‰°áˆ˜á‹ áŒ á‰ á‹‹áˆ â€” áŠ¨á‹šáˆ… á‹¨áˆšá‰ áˆ áŒ¥ á‰ áŒ¥áˆ á‹«áˆµáŒˆá‰¡\n_(áˆˆáˆ áˆ³áˆŒ ${gbAddOldKg + 5})_`,
+        `⚠️ አሁን *${gbAddOldKg} ${ul}* ተመዝግበዋል — ከዚህ የሚበልጥ ቁጥር ያስገቡ\n_(ለምሳሌ ${gbAddOldKg + 5})_`,
         { parse_mode: "Markdown" },
       );
     const diffKg = newTotal - gbAddOldKg;
@@ -1005,19 +1005,19 @@ bot.on("text", async (ctx, next) => {
     ctx.session.gbAddDiffFee = diffFee;
     ctx.session.step = "GB_ADDKG_CONFIRM";
     return ctx.reply(
-      `ðŸ“‹ *áŠªáˆŽ áˆ›áˆ»áˆ»á‹« áˆ›áˆ¨áŒ‹áŒˆáŒ«*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n` +
+      `📋 *ኪሎ ማሻሻያ ማረጋገጫ*\n━━━━━━━━━━━━━━━━\n` +
         `${prod?.emoji} *${prod?.label}*\n` +
-        `á‰€á‹µáˆž: *${gbAddOldKg} ${ul}* â†' áŠ á‹²áˆµ: *${newTotal} ${ul}*\n\n` +
-        `âž• áŒáˆ›áˆª: ${diffKg} ${ul}\n` +
-        `ðŸ'³ *á‹¨áˆšáŠ¨á ˆáˆˆá‹ : ${diffFee} á‰¥áˆ* (${diffKg} ${ul} Ã— ${REG_PER_KG} á‰¥áˆ)\n\n` +
-        `á‹«áˆ¨áŒ‹áŒ áŒ¡?`,
+        `ቀድሞ: *${gbAddOldKg} ${ul}*  →  አዲስ: *${newTotal} ${ul}*\n\n` +
+        `➕ ጭማሪ: ${diffKg} ${ul}\n` +
+        `💳 *የሚከፈለው: ${diffFee} ብር* (${diffKg} ${ul} × ${REG_PER_KG} ብር)\n\n` +
+        `ያረጋግጡ?`,
       {
         parse_mode: "Markdown",
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "âœ… áŠ áˆ¨áŒ‹áŒ áŒ¥", callback_data: "gb_addkg_confirm" },
-              { text: "âŒ áˆ°áˆ­á‹", callback_data: "gb_addkg_cancel" },
+              { text: "✅ አረጋግጥ", callback_data: "gb_addkg_confirm" },
+              { text: "❌ ሰርዝ", callback_data: "gb_addkg_cancel" },
             ],
           ],
         },
@@ -1025,67 +1025,67 @@ bot.on("text", async (ctx, next) => {
     );
   }
 
-  if (step === "GB_ADDKG_CONFIRM") return ctx.reply("Please confirm your entry");
+  if (step === "GB_ADDKG_CONFIRM") return ctx.reply("ከዚህ በታች ያሉትን ቁልፎች ይጠቀሙ 👆");
 
   if (step === "ADMIN_PRICE") {
     const price = parseFloat(txt.replace(/[^0-9.]/g, ""));
     const { adminPriceId } = ctx.session;
     const prod = byProduct(adminPriceId);
-    if (!prod) { ctx.session = {}; return ctx.reply("âŒ áˆáˆ­á‰µ áŠ áˆá‰°áŒˆáŠ˜áˆ"); }
+    if (!prod) { ctx.session = {}; return ctx.reply("❌ ምርት አልተገኘም"); }
     if (!price || price <= 0 || price > 100000)
-      return ctx.reply("â Œ á‰µáŠáŠáˆˆáŠ› á‹‹áŒ‹ á‹«áˆµáŒˆá‰¡ (áˆˆáˆ áˆ³áˆŒ: 80)");
-    const oldPrice = product.pricePerKg;
-    product.pricePerKg = price;
+      return ctx.reply("❌ ትክክለኛ ዋጋ ያስገቡ (ለምሳሌ: 80)");
+    const oldPrice = prod.pricePerKg;
+    prod.pricePerKg = price;
     await setSetting(`price_${adminPriceId}`, price);
     ctx.session = {};
     const ul = unitLabel(prod);
     await ctx.reply(
-      `âœ… *á‹‹áŒ‹ á‰°á‰€á‹áˆ¯áˆ !*\n\n${prod.emoji} *${prod.label}*\ná‰€á‹µáˆž: ${oldPrice} á‰¥áˆ/${ul}\náŠ áˆ áŠ•: *${price} á‰¥áˆ/${ul}*`,
+      `✅ *ዋጋ ተቀይሯል!*\n\n${prod.emoji} *${prod.label}*\nቀድሞ: ${oldPrice} ብር/${ul}\nአሁን: *${price} ብር/${ul}*`,
       { parse_mode: "Markdown" },
     );
     for (const aid of ADMIN_IDS) {
       if (aid === ctx.from.id) continue;
       bot.telegram.sendMessage(
         aid,
-        `${prod.emoji} *${prod.label}* á‹‹áŒ‹ á‰°á‰€á‹áˆ¯áˆ \n${oldPrice} â†' *${price}* á‰¥áˆ/${ul}`,
+        `${prod.emoji} *${prod.label}* ዋጋ ተቀይሯል\n${oldPrice} → *${price}* ብር/${ul}`,
         { parse_mode: "Markdown" },
       ).catch(() => {});
     }
     return;
   }
 
-  if (step === "PAYMETHOD") return ctx.reply("áŠ¨á‰áˆá á‹­áˆáˆ¨áŒ¡");
+  if (step === "PAYMETHOD") return ctx.reply("ከቁልፍ ይምረጡ");
   if (step === "NAME") {
-    if (txt.length < 3) return ctx.reply("áˆ™áˆ‰ áˆµáˆ á‹«áˆµáŒˆá‰¡ (3+ áŠá‹°áˆ)");
+    if (txt.length < 3) return ctx.reply("ሙሉ ስም ያስገቡ (3+ ፊደል)");
     ctx.session.d.name = txt;
     ctx.session.step = "PHONE";
-    return ctx.reply("Please reply:");
+    return ctx.reply("ስልክ ቁጥርዎን ያስገቡ:");
   }
   if (step === "PHONE") {
     const phone = txt.replace(/\s/g, "");
     if (!/^0[79]\d{8}$/.test(phone) && !/^\+251[79]\d{8}$/.test(phone))
-      return ctx.reply("á‰µáŠáŠáˆˆáŠ› áˆµáˆ áŠ á‹«áˆµáŒˆá‰¡\náˆ áˆ³áˆŒ: 0912345678");
+      return ctx.reply("ትክክለኛ ስልክ ያስገቡ\nምሳሌ: 0912345678");
     ctx.session.d.phone = phone;
     ctx.session.step = "CARGO";
-    return ctx.reply("What is the name of the person (what is the name of the person?):");
+    return ctx.reply("ጭነት ዓይነት (ምን ዓይነት እቃ?):");
   }
   if (step === "CARGO") {
     ctx.session.d.cargo = txt;
     ctx.session.step = "WEIGHT";
-    return ctx.reply("áŠá‰¥á‹°á‰µ (áŠªáˆŽ):");
+    return ctx.reply("ክብደት (ኪሎ):");
   }
   if (step === "WEIGHT") {
     const kg = parseFloat(txt.replace(/[^0-9.]/g, ""));
-    if (!kg || kg <= 0 || kg > 2000) return ctx.reply("á‰µáŠ­áŠ­áˆˆáŠ› á‰áŒ¥áˆ­ á‹«áˆµáŒˆá‰¡ (1â€“2000)");
+    if (!kg || kg <= 0 || kg > 2000) return ctx.reply("ትክክለኛ ቁጥር ያስገቡ (1–2000)");
     ctx.session.d.kg = kg;
     ctx.session.step = "PAYMETHOD";
     return ctx.reply(
-      `*áˆ›áŒ á‰ƒáˆˆá‹«*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n` +
-        `áˆµáˆ: ${ctx.session.d.name}\n` +
-        `cargo: ${ctx.session.d.cargo} â€” *${kg} cargo` +
-        `ðŸ'³ *á‹¨áˆ á‹ áŒˆá‰£ (áŠ áŒˆáˆ áŒ áˆŽá‰µ) áŠá á‹«: ${kg * REG_PER_KG} á‰¥áˆ* (${kg} áŠªáˆŽ Ã— ${REG_PER_KG} á‰¥áˆ/áŠªáˆŽ)\n` +
-        `_áˆŒáˆŽá‰¹ áŠá á‹«á‹Žá‰½ á‹•á‰ƒ áˆ²á‹ˆáŒ£ á‰ áˆŒáˆ‹ áˆ˜áŠ•áŒˆá‹µ á‹áˆµá‰°áŠ«áŠ¨áˆ‹áˆ‰_\n\n` +
-        `áŠá á‹« á‹˜á‹´ á‹áˆ áˆ¨áŒ¡:`,
+      `*ማጠቃለያ*\n━━━━━━━━━━━━━━━━\n` +
+        `ስም: ${ctx.session.d.name}\n` +
+        `ጭነት: ${ctx.session.d.cargo} — *${kg} ኪሎ*\n\n` +
+        `💳 *የምዝገባ (አገልግሎት) ክፍያ: ${kg * REG_PER_KG} ብር* (${kg} ኪሎ × ${REG_PER_KG} ብር/ኪሎ)\n` +
+        `_ሌሎቹ ክፍያዎች ዕቃ ሲወጣ በሌላ መንገድ ይስተካከላሉ_\n\n` +
+        `ክፍያ ዘዴ ይምረጡ:`,
       {
         parse_mode: "Markdown",
         ...Markup.inlineKeyboard(
@@ -1099,7 +1099,7 @@ bot.on("text", async (ctx, next) => {
     const { sendRoute } = ctx.session;
     ctx.session = {};
     const ready = await Reg.find({ routeId: sendRoute, status: "approved" }).lean();
-    if (!ready.length) return ctx.reply("Please wait until the end of the message is displayed");
+    if (!ready.length) return ctx.reply("ፈቃድ ያለው ምዝገባ የለም");
     const ro = byRoute(sendRoute);
     const note = txt;
     for (const r of ready) {
@@ -1107,12 +1107,12 @@ bot.on("text", async (ctx, next) => {
       bot.telegram
         .sendMessage(
           r.userId,
-          `*áŒáŠ á‰µá‹Ž á‰°áˆ áŠ³áˆ !*\n${ro?.emoji} ${ro?.label}\n\n${note}\n\n\náˆˆáŒ¥á‹«á‰„: ${SUPPORT_PHONE}`,
+          `*ጭነትዎ ተልኳል!*\n${ro?.emoji} ${ro?.label}\n\n${note}\n\nለጥያቄ: ${SUPPORT_PHONE}`,
           { parse_mode: "Markdown" },
         )
         .catch(() => {});
     }
-    await ctx.reply(`âœ… ${ready.length} áˆ°á‹ á‰³á‹ˆá‰€ â€” ${ro?.label}`);
+    await ctx.reply(`✅ ${ready.length} ሰው ታወቀ — ${ro?.label}`);
     return;
   }
 
@@ -1120,7 +1120,7 @@ bot.on("text", async (ctx, next) => {
   return next();
 });
 
-/* â”€â”€â”€ 20. LOCATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 20. LOCATION ──────────────────────────────────────── */
 bot.on("location", async (ctx, next) => {
   const { step } = ctx.session || {};
   const { latitude: lat, longitude: lng } = ctx.message.location;
@@ -1135,7 +1135,7 @@ bot.on("location", async (ctx, next) => {
       status: "approved",
       locationLat: { $ne: null },
     }).lean();
-    if (!approved.length) return ctx.reply(`${ro.label} â€” áŠ á‹µáˆ«áˆ» á‹«áˆ‹á‰¸á‹ á ˆá‰ƒá‹µ á‹«áˆˆá‹ áˆ á‹ áŒˆá‰£ á‹¨áˆˆáˆ `);
+    if (!approved.length) return ctx.reply(`${ro.label} — አድራሻ ያላቸው ፈቃድ ያለው ምዝገባ የለም`);
     const nearby = approved
       .map((r) => {
         const dlat = r.locationLat - lat, dlng = r.locationLng - lng;
@@ -1144,9 +1144,9 @@ bot.on("location", async (ctx, next) => {
       })
       .sort((a, b) => a.dist - b.dist)
       .slice(0, 10);
-    let txt = `${ro.emoji} *${ro.label}* â€” á‰…áˆá‰¥ á‹°áŠ•á‰ áŠžá‰½\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n`;
+    let txt = `${ro.emoji} *${ro.label}* — ቅርብ ደንበኞች\n━━━━━━━━━━━━━━━━\n\n`;
     for (const r of nearby) {
-      txt += `${r.fullName} | ${r.phone} | ${r.weightKg}áŠª | ${r.dist.toFixed(1)}áŠªáˆœ\n[áŠ«áˆá‰³](https://maps.google.com/?q=${r.locationLat},${r.locationLng})\n\n`;
+      txt += `${r.fullName} | ${r.phone} | ${r.weightKg}ኪ | ${r.dist.toFixed(1)}ኪሜ\n[ካርታ](https://maps.google.com/?q=${r.locationLat},${r.locationLng})\n\n`;
     }
     return ctx.reply(txt, { parse_mode: "Markdown" });
   }
@@ -1155,15 +1155,15 @@ bot.on("location", async (ctx, next) => {
     const regId = ctx.session.locRegId;
     ctx.session = {};
     const r = await Reg.findByIdAndUpdate(regId, { locationLat: lat, locationLng: lng }, { new: true });
-    if (!r) return ctx.reply("áˆá‹áŒˆá‰£ áŠ áˆá‰°áŒˆáŠ˜áˆ", await mainKb(ctx.from?.id));
+    if (!r) return ctx.reply("ምዝገባ አልተገኘም", await mainKb(ctx.from?.id));
     const total = await routeWeight(r.routeId),
       ro2 = byRoute(r.routeId);
     await ctx.reply(
-      `*áˆ á‹ áŒˆá‰£ á‰°áŒ áŠ“á‰€á‰€!*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n${ro2?.emoji} *${ro2?.label}*\n${capLine(total, ro2?.targetKg || TARGET_KG_DEFAULT)}\n\náŒáŠ á‰± áˆ²áˆžáˆ‹ á‰¤á‰µá‹Ž á‹áˆ°á‰ áˆ°á‰¥áˆˆá‹Žá‰³áˆ \n${SUPPORT_PHONE}`,
+      `*ምዝገባ ተጠናቀቀ!*\n━━━━━━━━━━━━━━━━\n\n${ro2?.emoji} *${ro2?.label}*\n${capLine(total, ro2?.targetKg || TARGET_KG_DEFAULT)}\n\nጭነቱ ሲሞላ ቤትዎ ይሰበሰብለዎታል\n${SUPPORT_PHONE}`,
       { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
     );
     for (const aid of ADMIN_IDS) {
-      bot.telegram.sendMessage(aid, `áŠ á‹µáˆ«áˆ» á‹°áˆ¨áˆ°: ${r.fullName} (${r.phone}) â†' ${ro2?.label}`).catch(() => {});
+      bot.telegram.sendMessage(aid, `አድራሻ ደረሰ: ${r.fullName} (${r.phone}) → ${ro2?.label}`).catch(() => {});
       bot.telegram.sendLocation(aid, lat, lng).catch(() => {});
     }
     return;
@@ -1171,32 +1171,32 @@ bot.on("location", async (ctx, next) => {
   return next();
 });
 
-bot.hears("â ï¸ áˆ³áˆ‹áŒ‹áˆ« áŒ¨áˆáˆµ", async (ctx) => {
+bot.hears("⏭️ ሳላጋራ ጨርስ", async (ctx) => {
   if (ctx.session?.step !== "LOC")
-    return ctx.reply("áŠ á‰…áŒ£áŒ« á‹­áˆáˆ¨áŒ¡", await mainKb(ctx.from?.id));
+    return ctx.reply("አቅጣጫ ይምረጡ", await mainKb(ctx.from?.id));
   const regId = ctx.session.locRegId;
   ctx.session = {};
   await ctx.reply(
-    `*Please contact us!*\n
+    `*ምዝገባ ተጠናቀቀ!*\n\nአድራሻ ኋላ ለማጨምር:\n"📋 የምዝገባ ዝርዝሬ" → "አድራሻ ላክ"\n\n${SUPPORT_PHONE}`,
     await mainKb(ctx.from?.id),
   );
   if (regId) {
     const r = await Reg.findById(regId).lean();
     if (r)
       for (const aid of ADMIN_IDS)
-        bot.telegram.sendMessage(aid, `áŠ á‹µáˆ«áˆ» áŠ áˆ á‰°áˆ‹áŠ¨áˆ â€” ${r.fullName} (${r.phone})`).catch(() => {});
+        bot.telegram.sendMessage(aid, `አድራሻ አልተላከም — ${r.fullName} (${r.phone})`).catch(() => {});
   }
 });
 
-/* â”€â”€â”€ 21. PAYMENT PHOTO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 21. PAYMENT PHOTO ─────────────────────────────────── */
 bot.on("photo", async (ctx) => {
   const r = await Reg.findOne({ userId: ctx.from.id, status: "pending" }).sort({ createdAt: -1 });
-  if (!r) return ctx.reply("áˆ á‹ áŒˆá‰£ áŠ áˆ á‰°áŒˆáŠ˜áˆ á ¢ áŠ á‰…áŒ£áŒ« á‹áˆ áˆ¨áŒ¡", await mainKb(ctx.from?.id));
+  if (!r) return ctx.reply("ምዝገባ አልተገኘም። አቅጣጫ ይምረጡ", await mainKb(ctx.from?.id));
   const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
   r.paymentFileId = fileId;
   r.status = "reviewing";
   await r.save();
-  await ctx.reply("á Žá‰¶ á‹°áˆáˆ·áˆ â€” áŠá á‹« áŠ¥á‹¨á‰°áˆ¨áŒ‹áŒˆáŒ áŠ á‹ ...");
+  await ctx.reply("ፎቶ ደርሷል — ክፍያ እየተረጋገጠ ነው...");
   const verdict = await checkPayment(fileId, r);
   r.aiVerdict = verdict;
   const autoOk = AI_AUTO_APPROVE && aiOk(verdict);
@@ -1206,75 +1206,75 @@ bot.on("photo", async (ctx) => {
     .sendMessage(
       ctx.from.id,
       autoOk
-        ? `*áŠá á‹« á‰°á ˆá‰…á‹·áˆ !*\n\n${card(r.toObject())}\n\nnáŒáŠ á‰µá‹Ž áˆ²áˆ‹áŠ á‹áŠ áŒˆáˆá‹Žá‰³áˆ .\n${SUPPORT_PHONE}`
-        : `á Žá‰¶ á‹°áˆáˆ·áˆ . áŠá á‹« áŠ¥á‹¨á‰°á ˆá‰°áˆ¸ áŠ á‹ â€” á‰µáŠ•áˆ½ á‹áŒ á‰¥á‰ .\n${SUPPORT_PHONE}`,
+        ? `*ክፍያ ተፈቅዷል!*\n\n${card(r.toObject())}\n\nጭነትዎ ሲላክ ይነገርዎታል.\n${SUPPORT_PHONE}`
+        : `ፎቶ ደርሷል. ክፍያ እየተፈተሸ ነው — ትንሽ ይጠብቁ.\n${SUPPORT_PHONE}`,
       { parse_mode: "Markdown" },
     )
     .catch(() => {});
   ctx.session = { step: "LOC", locRegId: String(r._id), locTries: 0 };
-  await ctx.reply("áŠ á‹µáˆ«áˆ»á‹ŽáŠ• á‹«áŒ‹áˆ© â€” á‰¤á‰µá‹Ž á‹áˆ°á‰ áˆ°á‰¥áˆˆá‹Žá‰³áˆ :", locKb());
-  const caption = aiSummary(verdict) + "\n\n" + (autoOk ? "AI á‹«áˆ¨áŒ‹áŒˆáŒ \n\n" : "") + card(r.toObject(), true);
+  await ctx.reply("አድራሻዎን ያጋሩ — ቤትዎ ይሰበሰብለዎታል:", locKb());
+  const caption = aiSummary(verdict) + "\n\n" + (autoOk ? "AI ያረጋገጠ\n\n" : "") + card(r.toObject(), true);
   const kb = Markup.inlineKeyboard([
     [
-      Markup.button.callback(autoOk ? "áˆ°áˆ­á‹" : "áˆá‰€á‹µ", autoOk ? `no_${r._id}` : `ok_${r._id}`),
-      Markup.button.callback("áŠ¨áˆáŠ­áˆ", `no_${r._id}`),
+      Markup.button.callback(autoOk ? "ሰርዝ" : "ፈቀድ", autoOk ? `no_${r._id}` : `ok_${r._id}`),
+      Markup.button.callback("ከልክል", `no_${r._id}`),
     ],
   ]);
   for (const aid of ADMIN_IDS)
     bot.telegram.sendPhoto(aid, fileId, { caption, parse_mode: "Markdown", ...kb }).catch(() => {});
 });
 
-/* â”€â”€â”€ 22. ADMIN PANEL â”€â
-bot.hears("ðŸ”§ Admin", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+/* ─── 22. ADMIN PANEL ───────────────────────────────────── */
+bot.hears("🔧 Admin", async (ctx) => {
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   ctx.session = {};
   const grpOn = await getSetting("group_notify_enabled", true);
-  const grpIcon = grpOn ? "ðŸŸ¢" : "ðŸ”´";
-  await ctx.reply("*á‹¨áŠ áˆµá‰°á‹³á‹³áˆª á “áŠ áˆ *", {
+  const grpIcon = grpOn ? "🟢" : "🔴";
+  await ctx.reply("*የአስተዳዳሪ ፓነል*", {
     parse_mode: "Markdown",
     ...Markup.inlineKeyboard([
-      [Markup.button.callback("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ áˆ á‹ áŒˆá‰¦á‰½", "lst_dir_toamhara")],
-      [Markup.button.callback("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£ áˆ á‹ áŒˆá‰¦á‰½", "lst_dir_toaa")],
-      [Markup.button.callback("pay", "lst_pay")],
-      [Markup.button.callback("áŒáŠ á‰µ áˆ°á‰¥áˆ³á‰¢ (áŠ á‰…áˆ«á‰¢á‹« á‹ áˆá‹ áˆ)", "col_pick")],
-      [Markup.button.callback("áŒáŠ á‰µ áˆ‹áŠ (áˆˆá‹°áŠ•á‰ áŠžá‰½ áˆ›áˆ³á‹ˆá‰‚á‹«)", "snd_pick")],
-      [Markup.button.callback("á‹¨áŒáŠ á‰µ áˆªá –áˆá‰µ", "admin_report")],
-      [Markup.button.callback("á‰»áŠ“áˆ áˆ›áˆµá‰³á‹ˆá‰‚á‹«", "channel_panel")],
-      [Markup.button.callback("Print Manifest", "print_pick")],
-      [Markup.button.callback("ðŸ"¦ á‹¨á‰¡á‹µáŠ• áŒ á‹¥ áˆ áŠ”á‰³", "gb_status")],
-      [Markup.button.callback("ðŸ“£ á‰€áˆª áŠªáˆŽ áˆˆá‰°áŒ á‰ƒáˆšá‹Žá‰½ áˆ‹áŠ", "gb_broadcast_remain")],
-      [Markup.button.callback("ðŸ“¢ GB á‰»áŠ“áˆ áˆ›áˆµá‰³á‹ˆá‰‚á‹«", "gb_channel_panel")],
-      [Markup.button.callback(`${grpIcon} Group Notify (Auto-Post)`, "toggle_group_notify")],
-      [Markup.button.callback("ðŸ'° á‹‹áŒ‹ áˆ›áˆ»áˆ»á‹«", "price_panel")],
-      [Markup.button.callback("ðŸ“‹ áˆ áŠ“áˆŒ áŠ áˆµá‰°á‹³á‹³áˆª (Menu Manager)", "menu_manager")],
+      [Markup.button.callback("አዲስ አበባ → አማራ ክልል ምዝገቦች", "lst_dir_toamhara")],
+      [Markup.button.callback("አማራ ክልል → አዲስ አበባ ምዝገቦች", "lst_dir_toaa")],
+      [Markup.button.callback("ያልተፈቀዱ ክፍያዎች", "lst_pay")],
+      [Markup.button.callback("ጭነት ሰብሳቢ (አቅራቢያ ዝርዝር)", "col_pick")],
+      [Markup.button.callback("ጭነት ላክ (ለደንበኞች ማሳወቂያ)", "snd_pick")],
+      [Markup.button.callback("የጭነት ሪፖርት", "admin_report")],
+      [Markup.button.callback("ቻናል ማስታወቂያ", "channel_panel")],
+      [Markup.button.callback("ዝርዝር አትም (Print Manifest)", "print_pick")],
+      [Markup.button.callback("📦 የቡድን ግዥ ሁኔታ", "gb_status")],
+      [Markup.button.callback("📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ", "gb_broadcast_remain")],
+      [Markup.button.callback("📢 GB ቻናል ማስታወቂያ", "gb_channel_panel")],
+      [Markup.button.callback(`${grpIcon} Group ማስታወቂያ (ምዝገባ Auto-Post)`, "toggle_group_notify")],
+      [Markup.button.callback("💰 ዋጋ ማሻሻያ", "price_panel")],
+      [Markup.button.callback("📋 ምናሌ አስተዳዳሪ (Menu Manager)", "menu_manager")],
     ]),
   });
 });
 
 bot.action("price_panel", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   const buttons = GB_PRODUCTS.map((p) => {
-    const ul = p.unit === "liter" ? "áˆŠá‰µáˆ" : "áŠªáˆŽ";
-    return [ Markup . button . callback ( ` $ { p . emoji } $ { p . label } â€” $ { p . pricePerKg } price / $ { ul }` , ` adm_setprice_ $ { p . id }` )] ;
+    const ul = p.unit === "liter" ? "ሊትር" : "ኪሎ";
+    return [Markup.button.callback(`${p.emoji} ${p.label} — ${p.pricePerKg} ብር/${ul}`, `adm_setprice_${p.id}`)];
   });
-  buttons.push([Markup.button.callback("â†©ï¸ á‰°áˆ˜áˆˆáˆµ", "back_to_admin")]);
+  buttons.push([Markup.button.callback("↩️ ተመለስ", "back_to_admin")]);
   await ctx.reply(
-    `ðŸ'° *á‹‹áŒ‹ áˆ›áˆ»áˆ»á‹«*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \ná‹¨á‰µáŠ›á‹ áŠ• áˆ áˆá‰µ á‹‹áŒ‹ áˆˆáˆ˜á‰€á‹¨áˆ?`,
+    `💰 *ዋጋ ማሻሻያ*\n━━━━━━━━━━━━━━━━\nየትኛውን ምርት ዋጋ ለመቀየር?`,
     { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) },
   );
 });
 
 bot.action(/^adm_setprice_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   const prodId = ctx.match[1];
   const prod = byProduct(prodId);
-  if (!prod) return ctx.reply("âŒ áˆáˆ­á‰µ áŠ áˆá‰°áŒˆáŠ˜áˆ");
+  if (!prod) return ctx.reply("❌ ምርት አልተገኘም");
   const ul = unitLabel(prod);
   ctx.session = { step: "ADMIN_PRICE", adminPriceId: prodId };
   await ctx.reply(
-    `${prod.emoji} *${prod.label}*\náŠ áˆ áŠ“á‹Š á‹‹áŒ‹: *${prod.pricePerKg} á‰¥áˆ/${ul}*\n\náŠ á‹²áˆµ á‹‹áŒ‹ á‹«áˆµáŒˆá‰¡ (á‰¥áˆ):`,
+    `${prod.emoji} *${prod.label}*\nአሁናዊ ዋጋ: *${prod.pricePerKg} ብር/${ul}*\n\nአዲስ ዋጋ ያስገቡ (ብር):`,
     { parse_mode: "Markdown" },
   );
 });
@@ -1283,48 +1283,48 @@ bot.action("back_to_admin", async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   ctx.session = {};
   const grpOn = await getSetting("group_notify_enabled", true);
-  const grpIcon = grpOn ? "ðŸŸ¢" : "ðŸ”´";
-  await ctx.reply("*á‹¨áŠ áˆµá‰°á‹³á‹³áˆª á “áŠ áˆ *", {
+  const grpIcon = grpOn ? "🟢" : "🔴";
+  await ctx.reply("*የአስተዳዳሪ ፓነል*", {
     parse_mode: "Markdown",
     ...Markup.inlineKeyboard([
-      [Markup.button.callback("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ áˆ á‹ áŒˆá‰¦á‰½", "lst_dir_toamhara")],
-      [Markup.button.callback("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£ áˆ á‹ áŒˆá‰¦á‰½", "lst_dir_toaa")],
-      [Markup.button.callback("pay", "lst_pay")],
-      [Markup.button.callback("áŒáŠ á‰µ áˆ°á‰¥áˆ³á‰¢ (áŠ á‰…áˆ«á‰¢á‹« á‹ áˆá‹ áˆ)", "col_pick")],
-      [Markup.button.callback("áŒáŠ á‰µ áˆ‹áŠ (áˆˆá‹°áŠ•á‰ áŠžá‰½ áˆ›áˆ³á‹ˆá‰‚á‹«)", "snd_pick")],
-      [Markup.button.callback("á‹¨áŒáŠ á‰µ áˆªá –áˆá‰µ", "admin_report")],
-      [Markup.button.callback("á‰»áŠ“áˆ áˆ›áˆµá‰³á‹ˆá‰‚á‹«", "channel_panel")],
-      [Markup.button.callback("Print Manifest", "print_pick")],
-      [Markup.button.callback("ðŸ"¦ á‹¨á‰¡á‹µáŠ• áŒ á‹¥ áˆ áŠ”á‰³", "gb_status")],
-      [Markup.button.callback("ðŸ“£ á‰€áˆª áŠªáˆŽ áˆˆá‰°áŒ á‰ƒáˆšá‹Žá‰½ áˆ‹áŠ", "gb_broadcast_remain")],
-      [Markup.button.callback("ðŸ“¢ GB á‰»áŠ“áˆ áˆ›áˆµá‰³á‹ˆá‰‚á‹«", "gb_channel_panel")],
-      [Markup.button.callback(`${grpIcon} Group Notify (Auto-Post)`, "toggle_group_notify")],
-      [Markup.button.callback("ðŸ'° á‹‹áŒ‹ áˆ›áˆ»áˆ»á‹«", "price_panel")],
-      [Markup.button.callback("ðŸ“‹ áˆ áŠ“áˆŒ áŠ áˆµá‰°á‹³á‹³áˆª (Menu Manager)", "menu_manager")],
+      [Markup.button.callback("አዲስ አበባ → አማራ ክልል ምዝገቦች", "lst_dir_toamhara")],
+      [Markup.button.callback("አማራ ክልል → አዲስ አበባ ምዝገቦች", "lst_dir_toaa")],
+      [Markup.button.callback("ያልተፈቀዱ ክፍያዎች", "lst_pay")],
+      [Markup.button.callback("ጭነት ሰብሳቢ (አቅራቢያ ዝርዝር)", "col_pick")],
+      [Markup.button.callback("ጭነት ላክ (ለደንበኞች ማሳወቂያ)", "snd_pick")],
+      [Markup.button.callback("የጭነት ሪፖርት", "admin_report")],
+      [Markup.button.callback("ቻናል ማስታወቂያ", "channel_panel")],
+      [Markup.button.callback("ዝርዝር አትም (Print Manifest)", "print_pick")],
+      [Markup.button.callback("📦 የቡድን ግዥ ሁኔታ", "gb_status")],
+      [Markup.button.callback("📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ", "gb_broadcast_remain")],
+      [Markup.button.callback("📢 GB ቻናል ማስታወቂያ", "gb_channel_panel")],
+      [Markup.button.callback(`${grpIcon} Group ማስታወቂያ (ምዝገባ Auto-Post)`, "toggle_group_notify")],
+      [Markup.button.callback("💰 ዋጋ ማሻሻያ", "price_panel")],
+      [Markup.button.callback("📋 ምናሌ አስተዳዳሪ (Menu Manager)", "menu_manager")],
     ]),
   });
 });
 
 bot.action("toggle_group_notify", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   const current = await getSetting("group_notify_enabled", true);
   const next = !current;
   await setSetting("group_notify_enabled", next);
-  const icon = next ? "ðŸŸ¢" : "ðŸ”´";
-  const label = next ? "á‰°áŠ á‰ƒá‰ (ON)" : "á‰°á‹˜áŒ‹ (OFF)";
+  const icon = next ? "🟢" : "🔴";
+  const label = next ? "ተነቃቁ (ON)" : "ተዘጋ (OFF)";
   await ctx.reply(
-    `${icon} *Group áˆ›áˆµá‰³á‹ˆá‰‚á‹« â€” ${label}*\n\n` +
+    `${icon} *Group ማስታወቂያ — ${label}*\n\n` +
       (next
-        ? `á‹°áŠ•á‰ áŠ› áˆ²áˆ˜á‹˜áŒˆá‰¥ á‹ˆá‹²á‹«á‹ á‹ˆá‹° Group á‹áˆ‹áŠ«áˆ á ¢\n_(GROUP_ID: ${GROUP_ID || "áŠ áˆ á‰°á‰€áˆ˜áŒ áˆ "})_`
-        : `Group áˆ›áˆµá‰³á‹ˆá‰‚á‹« á‰†áˆŸáˆ â€” áˆ á‹ áŒˆá‰£ áˆˆ Channel/Admin á‰¥á‰» á‹áˆ‹áŠ«áˆ á ¢`),
+        ? `ደንበኛ ሲመዘገብ ወዲያው ወደ Group ይላካል።\n_(GROUP_ID: ${GROUP_ID || "አልተቀመጠም"})_`
+        : `Group ማስታወቂያ ቆሟል — ምዝገባ ለ Channel/Admin ብቻ ይላካል።`),
     { parse_mode: "Markdown" },
   );
 });
 
-/* â”€â”€ áˆ áŠ“áˆŒ áŠ áˆµá‰°á‹³á‹³áˆª â”€â
+/* ── ምናሌ አስተዳዳሪ ─────────────────────────────────────────── */
 bot.action("menu_manager", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await sendMenuManagerPanel(ctx);
 });
@@ -1333,22 +1333,22 @@ async function sendMenuManagerPanel(ctx) {
   const states = await Promise.all(MENU_SETTINGS.map((m) => getSetting(m.key, true)));
   const buttons = MENU_SETTINGS.map((m, i) => {
     const on = states[i];
-    const icon = on ? "ðŸŸ¢" : "ðŸ” ́";
+    const icon = on ? "🟢" : "🔴";
     return [Markup.button.callback(`${icon} ${m.emoji} ${m.label}`, `tmitem_${m.key}`)];
   });
   buttons.push([
-    Markup.button.callback("ðŸ”´ áˆáˆ‰áŠ•áˆ áŒ¥á‹", "tmall_off"),
-    Markup.button.callback("ðŸŸ¢ áˆáˆ‰áŠ•áˆ á‰¥áˆ«", "tmall_on"),
+    Markup.button.callback("🔴 ሁሉንም ጥፋ", "tmall_off"),
+    Markup.button.callback("🟢 ሁሉንም ብራ", "tmall_on"),
   ]);
-  const lines = MENU_SETTINGS.map((m, i) => `${states[i] ? "ðŸŸ¢" : "ðŸ”´"} ${m.emoji} ${m.label}`).join("\n");
+  const lines = MENU_SETTINGS.map((m, i) => `${states[i] ? "🟢" : "🔴"} ${m.emoji} ${m.label}`).join("\n");
   await ctx.reply(
-    `*ðŸ“‹ áˆ áŠ“áˆŒ áŠ áˆµá‰°á‹³á‹³áˆª*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n${lines}\n\n_á‰ áˆ á‹áŒ«áŠ' áˆˆáˆ˜á‰€á‹«á‹¨áˆ:_`,
+    `*📋 ምናሌ አስተዳዳሪ*\n━━━━━━━━━━━━━━━━\n\n${lines}\n\n_ቁልፍ ይጫኑ ለመቀያየር:_`,
     { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) },
   );
 }
 
 bot.action(/^tmitem_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   const key = ctx.match[1];
   const item = MENU_SETTINGS.find((m) => m.key === key);
@@ -1356,32 +1356,32 @@ bot.action(/^tmitem_(.+)$/, async (ctx) => {
   const current = await getSetting(key, true);
   const next = !current;
   await setSetting(key, next);
-  const statusWord = next ? "ðŸŸ¢ á‰°áŠ¨á ˆá‰° (ON)" : "ðŸ”´ á‰°á‹˜áŒ‹ (OFF)";
+  const statusWord = next ? "🟢 ተከፈተ (ON)" : "🔴 ተዘጋ (OFF)";
   await ctx.reply(`${item.emoji} *${item.label}*\n${statusWord}`, { parse_mode: "Markdown" });
   await sendMenuManagerPanel(ctx);
 });
 
 bot.action("tmall_on", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await Promise.all(MENU_SETTINGS.map((m) => setSetting(m.key, true)));
-  await ctx.reply("ðŸŸ¢ *áˆ áˆ‰áˆ áˆ áŠ“áˆŒ á‰ áˆ á Žá‰½ á‰°áŠ¨á ˆá‰±*", { parse_mode: "Markdown" });
+  await ctx.reply("🟢 *ሁሉም ምናሌ ቁልፎች ተከፈቱ*", { parse_mode: "Markdown" });
   await sendMenuManagerPanel(ctx);
 });
 
 bot.action("tmall_off", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await Promise.all(MENU_SETTINGS.map((m) => setSetting(m.key, false)));
-  await ctx.reply("ðŸ”´ *áˆ áˆ‰áˆ áˆ áŠ“áˆŒ á‰ áˆ á Žá‰½ á‰°á‹˜áŒ‰*", { parse_mode: "Markdown" });
+  await ctx.reply("🔴 *ሁሉም ምናሌ ቁልፎች ተዘጉ*", { parse_mode: "Markdown" });
   await sendMenuManagerPanel(ctx);
 });
 
-/* â”€â”€ GB status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── GB status ─────────────────────────────────────────── */
 bot.action("gb_status", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  let txt = "*ðŸ“¦ á‹¨á‰¡á‹µáŠ• áŒ á‹¥ áˆ áŠ”á‰³*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n";
+  let txt = "*📦 የቡድን ግዥ ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n";
   for (const prod of GB_PRODUCTS) {
     const ul = unitLabel(prod);
     const res = await GBReg.aggregate([
@@ -1390,20 +1390,20 @@ bot.action("gb_status", async (ctx) => {
     ]);
     const regKg = res[0]?.kg || 0, regCount = res[0]?.count || 0, revenue = res[0]?.revenue || 0;
     txt +=
-      `${prod.emoji} *${prod.label}* â€” ${prod.pricePerKg} á‰¥áˆ/${ul}\n` +
+      `${prod.emoji} *${prod.label}* — ${prod.pricePerKg} ብር/${ul}\n` +
       `${capLine(regKg, prod.targetKg)}\n` +
-      `á‰°áˆ³á‰³á Š áˆ°á‹Žá‰½: ${regCount} | áŒ á‰…áˆ‹áˆ‹ á‹‹áŒ‹: ${revenue.toLocaleString()} á‰¥áˆ\n\n`;
+      `ተሳታፊ ሰዎች: ${regCount} | ጠቅላላ ዋጋ: ${revenue.toLocaleString()} ብር\n\n`;
   }
   await ctx.reply(txt, { parse_mode: "Markdown" });
 });
 
-/* â”€â”€ GB Confirm / Cancel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── GB Confirm / Cancel ────────────────────────────────── */
 bot.action("gb_confirm_yes", async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const { gbProductId, gbName, gbPhone, gbKg } = ctx.session || {};
   if (!gbProductId || !gbName || !gbPhone || !gbKg) {
     ctx.session = {};
-    return ctx.reply("âš ï¸ áˆ á‹ áŒˆá‰£ áŒŠá‹œ áŠ áˆ á Žá‰³áˆ â€” áŠ¥áŠ•á‹°áŒˆáŠ" á‹áŒ€áˆ áˆ©á ¢", await mainKb(ctx.from?.id));
+    return ctx.reply("⚠️ ምዝገባ ጊዜ አልፎታል — እንደገና ይጀምሩ።", await mainKb(ctx.from?.id));
   }
   const prod = byProduct(gbProductId);
   const ul = unitLabel(prod);
@@ -1426,29 +1426,29 @@ bot.action("gb_confirm_yes", async (ctx) => {
   ]);
   const regKg = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
   await ctx.reply(
-    `ðŸŽ‰ *áˆ á‹ áŒˆá‰£ á‰°áŒ áŠ“á‰€á‰€!*\n` +
-      `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â” \n` +
-      `${prod?.emoji} *${prod?.label}* â€” ${gbKg} ${ul}\n` +
-      `ðŸ'¤ ${gbName} | ðŸ“ž ${gbPhone}\n\n` +
-      `ðŸ“‹ *áŠ áŒˆáˆ áŒ áˆŽá‰µ áŠá á‹«: ${serviceFee.toLocaleString()} á‰¥áˆ* âœ…\n` +
-      `_(${gbKg} ${ul} Ã— ${REG_PER_KG} á‰¥áˆ â€” áˆˆ bot á‰¥á‰»)_\n\n` +
+    `🎉 *ምዝገባ ተጠናቀቀ!*\n` +
+      `━━━━━━━━━━━━━━━━\n` +
+      `${prod?.emoji} *${prod?.label}* — ${gbKg} ${ul}\n` +
+      `👤 ${gbName}  |  📞 ${gbPhone}\n\n` +
+      `📋 *አገልግሎት ክፍያ: ${serviceFee.toLocaleString()} ብር* ✅\n` +
+      `_(${gbKg} ${ul} × ${REG_PER_KG} ብር — ለ bot ብቻ)_\n\n` +
       `${capLine(regKg, prod?.targetKg || 5000, ul)}\n` +
-      `ðŸ'¥ á‰°áˆ³á‰³á Š: ${regCount} áˆ°á‹ \n\n` +
-      `âœ¨ _áˆ á‹ áŒˆá‰£ áˆ²áˆžáˆ‹ áŠ¥áŠ“áˆ3á‹ á‰...á‹Žá‰3áˆˆáŠ•!_\nðŸ“ž $_{SUPPORT_PHONE}`,
+      `👥 ተሳታፊ: ${regCount} ሰው\n\n` +
+      `✨ _ምዝገባ ሲሞላ እናሳውቅዎታለን!_\n📞 ${SUPPORT_PHONE}`,
     { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
   );
   for (const aid of ADMIN_IDS)
     bot.telegram
-      .sendMessage(aid, `ðŸ†• GB: ${prod?.emoji}${prod?.label} â€” ${gbName} (${gbPhone}) â€” ${gbKg}${ul} | ${serviceFee}á‰¥`)
+      .sendMessage(aid, `🆕 GB: ${prod?.emoji}${prod?.label} — ${gbName} (${gbPhone}) — ${gbKg}${ul} | አገልግሎት: ${serviceFee}ብ`)
       .catch(() => {});
   const regMsg =
-    `${prod?.emoji} *${prod?.label} â€” áŠ á‹²áˆµ áˆ á‹ áŒˆá‰£!*\n` +
-    `â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â” \n` +
-    `ðŸ'¤ ${gbName} | ðŸ“ž ${gbPhone}\n` +
-    `âš–ï¸ *${gbKg} ${ul}* â€¢ ${prod?.pricePerKg} á‰¥áˆ/${ul}\n` +
-    `ðŸ“‹ áŠ áŒˆáˆ áŒ áˆŽá‰µ: ${serviceFee.toLocaleString()} á‰¥áˆ\n\n` +
+    `${prod?.emoji} *${prod?.label} — አዲስ ምዝገባ!*\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `👤 ${gbName}  |  📞 ${gbPhone}\n` +
+    `⚖️ *${gbKg} ${ul}*  •  ${prod?.pricePerKg} ብር/${ul}\n` +
+    `📋 አገልግሎት: ${serviceFee.toLocaleString()} ብር\n\n` +
     `${capLine(regKg, prod?.targetKg || 5000, ul)}\n` +
-    `ðŸ'¥ á‰°áˆ³á‰³á Š: ${regCount} áˆ°á‹ `;
+    `👥 ተሳታፊ: ${regCount} ሰው`;
   if (CHANNEL_ID)
     bot.telegram.sendMessage(CHANNEL_ID, regMsg, { parse_mode: "Markdown" }).catch(() => {});
   if (GROUP_ID) {
@@ -1464,15 +1464,15 @@ bot.action(/^gb_addkg_([a-f\d]{24})$/i, async (ctx) => {
   const regId = ctx.match[1];
   const reg = await GBReg.findById(regId).lean();
   if (!reg || reg.userId !== ctx.from?.id)
-    return ctx.reply("â Œ áˆ á‹ áŒˆá‰£ áŠ áˆ á‰°áŒˆáŠ˜áˆ á‹ˆá‹áˆ á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ");
+    return ctx.reply("❌ ምዝገባ አልተገኘም ወይም ፈቃድ የለዎትም");
   const prod = byProduct(reg.productId);
   const ul = unitLabel(prod);
   ctx.session = { step: "GB_ADDKG", gbAddId: regId, gbAddProductId: reg.productId, gbAddOldKg: reg.weightKg };
   await ctx.reply(
-    `âž• *áŠªáˆŽ áŒ¨áˆ áˆ â€” ${prod?.emoji} ${prod?.label}*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n` +
-      `áŠ áˆ áŠ• á‹«áˆˆ: *${reg.weightKg} ${ul}*\n\n` +
-      `*áŠ á‹²áˆ± áŒ á‰…áˆ‹áˆ‹ áŠªáˆŽ* áˆµáŠ•á‰µ á‹áˆ áŠ•? (áŠ¨ ${reg.weightKg} + 1 â€‹á‹ˆá‹²áˆ…)\n` +
-      `_(áˆ áˆ³áˆŒ: á‰€á‹µáˆž 5kg áŠ¨áˆ†áŠ áŠ áˆ áŠ• 10 á‹«áˆµáŒˆá‰¡ â†' 5kg áˆ á‹©áŠ á‰µ á‰¥á‰» á‹áŠ¨á áˆ‹áˆ‰)_`,
+    `➕ *ኪሎ ጨምር — ${prod?.emoji} ${prod?.label}*\n━━━━━━━━━━━━━━━━\n` +
+      `አሁን ያለ: *${reg.weightKg} ${ul}*\n\n` +
+      `*አዲሱ ጠቅላላ ኪሎ* ስንት ይሁን? (ከ ${reg.weightKg} + 1 ​ወዲህ)\n` +
+      `_(ምሳሌ: ቀድሞ 5kg ከሆነ አሁን 10 ያስገቡ → 5kg ልዩነት ብቻ ይከፍላሉ)_`,
     { parse_mode: "Markdown" },
   );
 });
@@ -1482,7 +1482,7 @@ bot.action("gb_addkg_confirm", async (ctx) => {
   const { gbAddId, gbAddProductId, gbAddOldKg, gbAddNewKg, gbAddDiffKg, gbAddDiffFee } = ctx.session || {};
   if (!gbAddId || !gbAddNewKg) {
     ctx.session = {};
-    return ctx.reply("âš ï¸ áŒŠá‹œ áŠ áˆ á Žá‰³áˆ â€” áŠ¥áŠ•á‹°áŒˆáŠ" á‹áˆžáŠáˆ©");
+    return ctx.reply("⚠️ ጊዜ አልፎታል — እንደገና ይሞክሩ");
   }
   const prod = byProduct(gbAddProductId);
   const ul = unitLabel(prod);
@@ -1490,17 +1490,17 @@ bot.action("gb_addkg_confirm", async (ctx) => {
   ctx.session = {};
   const updated = await GBReg.findById(gbAddId).lean();
   await ctx.reply(
-    `âœ… *áŠªáˆŽ á‰°áŒ¨áˆ áˆ¯áˆ !*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n` +
+    `✅ *ኪሎ ተጨምሯል!*\n━━━━━━━━━━━━━━━━\n` +
       `${prod?.emoji} *${prod?.label}*\n` +
-      `á‰€á‹µáˆž: ${gbAddOldKg} ${ul} â†' áŠ áˆ áŠ•: *${updated?.weightKg || gbAddNewKg} ${ul}*\n` +
-      `ðŸ'3 *áˆ á‹©áŠ á‰µ áŠá á‹«: ${gbAddDiffFee} á‰¥áˆ* (${gbAddDiffKg} ${ul} Ã— ${REG_PER_KG} á‰¥\n\`)
-      `ðŸ“ž ${SUPPORT_PHONE}`,
+      `ቀድሞ: ${gbAddOldKg} ${ul}  →  አሁን: *${updated?.weightKg || gbAddNewKg} ${ul}*\n\n` +
+      `💳 *ልዩነት ክፍያ: ${gbAddDiffFee} ብር* (${gbAddDiffKg} ${ul} × ${REG_PER_KG} ብር)\n\n` +
+      `📞 ${SUPPORT_PHONE}`,
     { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
   );
   for (const aid of ADMIN_IDS)
     bot.telegram.sendMessage(
       aid,
-      `ðŸ”„ GB áŠªáˆŽ á‰°áŒ¨áˆ áˆ¯áˆ : ${prod?.emoji}${prod?.label} â€” ${gbAddOldKg}â†'${gbAddNewKg}${ul} (+$Add}{Diff}) ${updated?.fullName}`,
+      `🔄 GB ኪሎ ተጨምሯል: ${prod?.emoji}${prod?.label} — ${gbAddOldKg}→${gbAddNewKg}${ul} (+${gbAddDiffKg}${ul}) | ${updated?.fullName}`,
     ).catch(() => {});
   checkGBCapacity(gbAddProductId).catch(() => {});
 });
@@ -1508,20 +1508,20 @@ bot.action("gb_addkg_confirm", async (ctx) => {
 bot.action("gb_addkg_cancel", async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   ctx.session = {};
-  return ctx.reply("áˆ°áˆ­á‹Ÿáˆá¢", await mainKb(ctx.from?.id));
+  return ctx.reply("ሰርዟል።", await mainKb(ctx.from?.id));
 });
 
 bot.action("gb_confirm_no", async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   ctx.session = {};
-  return ctx.reply("â Œ áˆ á‹ áŒˆá‰£ á‰°áˆ°áˆá‹Ÿáˆ á ¢\náˆˆáˆ›áˆµáŒ€áˆ áˆ á‹³áŒ áˆ áˆ áˆ áˆá‰±áŠ• á‹áˆ áˆ¨áŒ¡á ¢", await mainKb(ctx.from?.id));
+  return ctx.reply("❌ ምዝገባ ተሰርዟል።\nለማስጀምር ዳግም ምርቱን ይምረጡ።", await mainKb(ctx.from?.id));
 });
 
-/* â”€â”€ Broadcast remaining kg â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Broadcast remaining kg ─────────────────────────────── */
 bot.action("gb_broadcast_remain", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  let summary = "*ðŸ›' á‹¨á‰¡á‹µáŠ• áŒ á‹¥ â€” á‰€áˆª áˆ áŠ”á‰³*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n";
+  let summary = "*🛒 የቡድን ግዥ — ቀሪ ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n";
   for (const prod of GB_PRODUCTS) {
     const ul = unitLabel(prod);
     const res = await GBReg.aggregate([
@@ -1530,13 +1530,13 @@ bot.action("gb_broadcast_remain", async (ctx) => {
     ]);
     const regKg = res[0]?.kg || 0, regCount = res[0]?.count || 0;
     summary +=
-      `${prod.emoji} *${prod.label}* â€” *${prod.pricePerKg} á‰¥áˆ/${ul}*\n` +
-      `${capLine(regKg, prod.targetKg, ul)}\nðŸ'¥ á‰°áˆ3á‰3á Š: ${regCount} áˆ°á‹ \n`;
+      `${prod.emoji} *${prod.label}* — *${prod.pricePerKg} ብር/${ul}*\n` +
+      `${capLine(regKg, prod.targetKg, ul)}\n👥 ተሳታፊ: ${regCount} ሰው\n\n`;
   }
   summary +=
-    `á‰€áŒ¥á‰³ áŠ¨ *áŒˆá‰ áˆ¬á‹Žá‰½* áŠ¥áŠ“ *á ‹á‰¥áˆªáŠ«á‹Žá‰½*!\n` +
-    `áŠ áŠ áˆµá‰°áŠ› á‹¨áŠ áŒˆáˆ áŒ áˆŽá‰µ áŠá á‹« á‰¥á‰» â€” *á á‰±áŠ• áˆ˜á‹µáˆƒáŠ'á‰µ!*\n\n` +
-    `áˆˆáˆ á‹ áŒˆá‰£ á‰¦á‰±áŠ• á‹áŒ á‰€áˆ™ | ${SUPPORT_PHONE}`;
+    `ቀጥታ ከ *ገበሬዎች* እና *ፋብሪካዎች*!\n` +
+    `አነስተኛ የአገልግሎት ክፍያ ብቻ — *ፍቱን መድሃኒት!*\n\n` +
+    `ለምዝገባ ቦቱን ይጠቀሙ | ${SUPPORT_PHONE}`;
   const gbUsers = await GBReg.distinct("userId");
   const cargoUsers = await Reg.distinct("userId", { status: { $nin: ["rejected"] } });
   const allUsers = [...new Set([...gbUsers, ...cargoUsers])];
@@ -1545,30 +1545,30 @@ bot.action("gb_broadcast_remain", async (ctx) => {
     try { await bot.telegram.sendMessage(uid, summary, { parse_mode: "Markdown" }); sent++; } catch {}
     await new Promise((r) => setTimeout(r, 50));
   }
-  await ctx.reply(`âœ… á‰€áˆª áˆ áŠ”á‰³ áˆˆ ${sent} áˆ°á‹ á‰°áˆ áŠ³áˆ `);
+  await ctx.reply(`✅ ቀሪ ሁኔታ ለ ${sent} ሰው ተልኳል`);
 });
 
-/* â”€â”€ GB á‰»áŠ“áˆ â”€â
+/* ── GB ቻናል ────────────────────────────────────────────── */
 bot.action("gb_channel_panel", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  if (!CHANNEL_ID) return ctx.reply("CHANNEL_ID áŠ áˆá‰°á‰€áˆ˜áŒ áˆ");
+  if (!CHANNEL_ID) return ctx.reply("CHANNEL_ID አልተቀመጠም");
   await ctx.reply(
-    "*ðŸ“¢ GB á‰»áŠ“áˆ áˆ›áˆµá‰³á‹ˆá‰‚á‹«*\n\náˆ áˆá‰µ áˆ áˆ¨áŒ¥ â€” á‹ˆá‹° á‰»áŠ“áˆ á‹áˆ‹áŠ«áˆ :",
+    "*📢 GB ቻናል ማስታወቂያ*\n\nምርት ምረጥ — ወደ ቻናል ይላካል:",
     Markup.inlineKeyboard([
       ...GB_PRODUCTS.map((p) => [Markup.button.callback(`${p.emoji} ${p.label}`, `gb_ch_ann_${p.id}`)]),
-      [Markup.button.callback("ðŸ“¢ áˆáˆ‰áŠ•áˆ áˆáˆ­á‰¶á‰½ áˆ‹áŠ­", "gb_ch_ann_all")],
+      [Markup.button.callback("📢 ሁሉንም ምርቶች ላክ", "gb_ch_ann_all")],
     ]),
   );
 });
 
 bot.action(/^gb_ch_ann_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  if (!CHANNEL_ID) return ctx.reply("CHANNEL_ID áŠ áˆá‰°á‰€áˆ˜áŒ áˆ");
+  if (!CHANNEL_ID) return ctx.reply("CHANNEL_ID አልተቀመጠም");
   const targetId = ctx.match[1];
   const products = targetId === "all" ? GB_PRODUCTS : [byProduct(targetId)].filter(Boolean);
-  let msg = `*ðŸ›' á‹¨á‰¡á‹µáŠ• áŒ á‹¥ â€” áŠ áˆ áŠ“á‹Š áˆ áŠ”á‰³*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n`;
+  let msg = `*🛒 የቡድን ግዥ — አሁናዊ ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n`;
   for (const prod of products) {
     const ul = unitLabel(prod);
     const res = await GBReg.aggregate([
@@ -1578,46 +1578,46 @@ bot.action(/^gb_ch_ann_(.+)$/, async (ctx) => {
     const regKg = res[0]?.kg || 0, regCount = res[0]?.count || 0;
     msg +=
       `${prod.emoji} *${prod.label}*\n` +
-      `ðŸ'° á‹¨áˆ áˆá‰µ á‹‹áŒ‹: *${prod.pricePerKg} á‰¥áˆ/${ul}*\n` +
-      `ðŸ“‹ á‹¨áŠ áŒˆáˆ áŒ áˆŽá‰µ áŠá á‹«: *${REG_PER_KG} á‰¥áˆ/${ul}*\n` +
+      `💰 የምርት ዋጋ: *${prod.pricePerKg} ብር/${ul}*\n` +
+      `📋 የአገልግሎት ክፍያ: *${REG_PER_KG} ብር/${ul}*\n` +
       `${capLine(regKg, prod.targetKg, ul)}\n` +
-      `ðŸ'¥ á‰°áˆ³á‰³á Š: ${regCount} áˆ°á‹ \n\n`;
+      `👥 ተሳታፊ: ${regCount} ሰው\n\n`;
   }
   msg +=
-    `âœ¨ á‰€áŒ¥á‰³ áŠ¨ *áŒˆá‰ áˆ¬á‹Žá‰½* áŠ¥áŠ“ *á ‹á‰¥áˆªáŠ«á‹Žá‰½*!\n` +
-    `_á‰µáŠ•áˆ½ áŠ áŒˆáˆ áŒ áˆŽá‰µ áŠá á‹« á‰¥á‰» â€” áˆŒáˆ‹ áŠá á‹« á‹¨áˆˆáˆ !_\n\n` +
-    `áˆˆáˆ á‹ áŒˆá‰£ á‰¦á‰±áŠ• á‹áŒ á‰€áˆ™ | ${SUPPORT_PHONE}`;
+    `✨ ቀጥታ ከ *ገበሬዎች* እና *ፋብሪካዎች*!\n` +
+    `_ትንሽ አገልግሎት ክፍያ ብቻ — ሌላ ክፍያ የለም!_\n\n` +
+    `ለምዝገባ ቦቱን ይጠቀሙ | ${SUPPORT_PHONE}`;
   try {
     await bot.telegram.sendMessage(CHANNEL_ID, msg, { parse_mode: "Markdown" });
-    await ctx.reply(`âœ… á‰»áŠ“áˆ áˆ›áˆµá‰³á‹ˆá‰‚á‹« á‰°áˆ áŠ³áˆ `);
+    await ctx.reply(`✅ ቻናል ማስታወቂያ ተልኳል`);
   } catch (e) {
-    await ctx.reply(`â Œ áŠ áˆ á‰°áˆ³áŠ«áˆ : ${e.message}`);
+    await ctx.reply(`❌ አልተሳካም: ${e.message}`);
   }
 });
 
-/* â”€â”€ Route lists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Route lists ─────────────────────────────────────────── */
 bot.action("lst_dir_toamhara", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply(
-    "The following is a list of the most important things to know:",
+    "አዲስ አበባ → አማራ ክልል — መስመር ምረጥ:",
     Markup.inlineKeyboard(ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `lst_${r.id}`)])),
   );
 });
 bot.action("lst_dir_toaa", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply(
-    "áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£ â€” áˆ˜áˆµáˆ˜áˆ áˆ áˆ áˆ¨áŒ¥:",
+    "አማራ ክልል → አዲስ አበባ — መስመር ምረጥ:",
     Markup.inlineKeyboard(ROUTES_TO_AA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `lst_${r.id}`)])),
   );
 });
 
 bot.action("lst_pay", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   const list = await Reg.find({ status: "reviewing" }).sort({ createdAt: 1 }).lean();
-  if (!list.length) return ctx.reply("á‹«áˆ á‰°á ˆá‰€á‹° áŠá á‹« á‹¨áˆˆáˆ ");
+  if (!list.length) return ctx.reply("ያልተፈቀደ ክፍያ የለም");
   for (const r of list) {
     const txt = aiSummary(r.aiVerdict) + "\n\n" + card(r, true);
     if (r.paymentFileId)
@@ -1627,17 +1627,17 @@ bot.action("lst_pay", async (ctx) => {
 });
 
 bot.action(/^lst_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   const ro = byRoute(ctx.match[1]);
   if (!ro) return;
   const list = await Reg.find({ routeId: ro.id }).sort({ createdAt: -1 }).lean();
-  if (!list.length) return ctx.reply(`${ro.emoji} ${ro.label} â€” áˆá‹áŒˆá‰£ á‹¨áˆˆáˆ`);
+  if (!list.length) return ctx.reply(`${ro.emoji} ${ro.label} — ምዝገባ የለም`);
   const cnt = {};
   list.forEach((r) => { cnt[r.status] = (cnt[r.status] || 0) + 1; });
   const total = await routeWeight(ro.id);
   await ctx.reply(
-    `${ro.emoji} *${ro.label}*\n${list.length} áˆ°á‹ | á ˆá‰ƒá‹µ: ${cnt.approved || 0} | á á‰°áˆ»: ${cnt.reviewing || 0} | á‹«áˆ áŠ¨á ˆáˆˆ: ${cnt.pending || 0} | á‰°áˆ áŠ³áˆ : ${cnt.sent || 0}\n${capLine(total, ro.targetKg)}`,
+    `${ro.emoji} *${ro.label}*\n${list.length} ሰው | ፈቃድ: ${cnt.approved || 0} | ፍተሻ: ${cnt.reviewing || 0} | ያልከፈለ: ${cnt.pending || 0} | ተልኳል: ${cnt.sent || 0}\n${capLine(total, ro.targetKg)}`,
     { parse_mode: "Markdown" },
   );
   for (const r of list) {
@@ -1645,7 +1645,7 @@ bot.action(/^lst_(.+)$/, async (ctx) => {
       r.status === "reviewing"
         ? approveKb(r._id)
         : r.status === "approved"
-          ? Markup.inlineKeyboard([[Markup.button.callback("áˆ°áˆ­á‹", `no_${r._id}`)]])
+          ? Markup.inlineKeyboard([[Markup.button.callback("ሰርዝ", `no_${r._id}`)]])
           : {};
     await ctx.reply(card(r, true), { parse_mode: "Markdown", ...kb });
   }
@@ -1662,17 +1662,17 @@ async function setStatus(ctx, id, newStatus, notifyFn) {
 }
 
 bot.action(/^ok_([a-f\d]{24})$/i, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
-  await ctx.answerCbQuery("á‰°áˆá‰…á‹·áˆ").catch(() => {});
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery("ተፈቅዷል").catch(() => {});
   await setStatus(
     ctx, ctx.match[1], "approved",
-    (r) => `*áŠá á‹« á‰°á ˆá‰…á‹·áˆ !*\n\n${card(r.toObject())}\n\náŒáŠ á‰µá‹Ž áˆ²áˆ‹áŠ á‹áŠ áŒˆáˆá‹Žá‰³áˆ .\n${SUPPORT_PHONE}`,
+    (r) => `*ክፍያ ተፈቅዷል!*\n\n${card(r.toObject())}\n\nጭነትዎ ሲላክ ይነገርዎታል.\n${SUPPORT_PHONE}`,
   );
 });
 bot.action(/^no_([a-f\d]{24})$/i, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
-  await ctx.answerCbQuery("áŠ áˆá‰°á‰€á‰ áˆˆáˆ").catch(() => {});
-  await setStatus(ctx, ctx.match[1], "rejected", () => `áŠ­áá‹« áŠ áˆá‰°á‰€á‰ áˆˆáˆ.\n${SUPPORT_PHONE}`);
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery("አልተቀበለም").catch(() => {});
+  await setStatus(ctx, ctx.match[1], "rejected", () => `ክፍያ አልተቀበለም.\n${SUPPORT_PHONE}`);
 });
 
 bot.action(/^del_([a-f\d]{24})$/i, async (ctx) => {
@@ -1680,194 +1680,194 @@ bot.action(/^del_([a-f\d]{24})$/i, async (ctx) => {
   const r = await Reg.findById(ctx.match[1]);
   if (!r) return;
   if (r.userId !== ctx.from?.id && !isAdmin(ctx)) return;
-  if (r.status === "sent") return ctx.reply("áŒ­áŠá‰± á‰°áˆáŠ³áˆ â€” áˆ˜áˆ°áˆ¨á‹ áŠ á‹­á‰»áˆáˆ");
+  if (r.status === "sent") return ctx.reply("ጭነቱ ተልኳል — መሰረዝ አይቻልም");
   const routeId = r.routeId;
   await r.deleteOne();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await checkCapacity(routeId);
-  await ctx.reply("áˆá‹áŒˆá‰£ á‰°áˆ°áˆ­á‹Ÿáˆ. áˆˆáˆ˜áˆ˜á‹áŒˆá‰¥ áŠ á‰…áŒ£áŒ« á‹­áˆáˆ¨áŒ¡", await mainKb(ctx.from?.id));
+  await ctx.reply("ምዝገባ ተሰርዟል. ለመመዝገብ አቅጣጫ ይምረጡ", await mainKb(ctx.from?.id));
 });
 
-/* â”€â”€ Send shipment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Send shipment ──────────────────────────────────────── */
 bot.action("snd_pick", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply(
-    "áˆ áŠ• áŠ á‰…áŒ£áŒ«?",
+    "ምን አቅጣጫ?",
     Markup.inlineKeyboard([
-      [Markup.button.callback("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ ", "snd_dir_toamhara")],
-      [Markup.button.callback("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£", "snd_dir_toaa")],
+      [Markup.button.callback("አዲስ አበባ → አማራ ክልል", "snd_dir_toamhara")],
+      [Markup.button.callback("አማራ ክልል → አዲስ አበባ", "snd_dir_toaa")],
     ]),
   );
 });
 bot.action("snd_dir_toamhara", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ :", Markup.inlineKeyboard(ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `snd_${r.id}`)])));
+  await ctx.reply("አዲስ አበባ → አማራ ክልል:", Markup.inlineKeyboard(ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `snd_${r.id}`)])));
 });
 bot.action("snd_dir_toaa", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£:", Markup.inlineKeyboard(ROUTES_TO_AA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `snd_${r.id}`)])));
+  await ctx.reply("አማራ ክልል → አዲስ አበባ:", Markup.inlineKeyboard(ROUTES_TO_AA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `snd_${r.id}`)])));
 });
 bot.action(/^snd_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   const ro = byRoute(ctx.match[1]);
   if (!ro) return;
   const ready = await Reg.find({ routeId: ro.id, status: "approved" }).lean();
-  if (!ready.length) return ctx.reply("Please wait until the end of the message is displayed");
+  if (!ready.length) return ctx.reply("ፈቃድ ያለው ምዝገባ የለም");
   const total = ready.reduce((s, r) => s + (r.weightKg || 0), 0);
   ctx.session = { step: "SEND_NOTE", sendRoute: ro.id };
-  await ctx.reply(`${ro.label} | ${ready.length} áˆ°á‹ | ${total} áŠaáˆŽ\n\náˆˆá‹°áŠ•á‰ áŠžá‰1⁄2 áˆ›áˆμá‰3á‹ˆáˆ» á‹«áˆμáŒˆá‰¡:`);
+  await ctx.reply(`${ro.label} | ${ready.length} ሰው | ${total} ኪሎ\n\nለደንበኞች ማስታወሻ ያስገቡ:`);
 });
 
-/* â”€â”€ Report â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Report ─────────────────────────────────────────────── */
 bot.action("admin_report", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  let txt = "*á‹¨áŒáŠ á‰µ áˆªá –áˆá‰µ*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n*áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ *\n";
+  let txt = "*የጭነት ሪፖርት*\n━━━━━━━━━━━━━━━━\n\n*አዲስ አበባ → አማራ ክልል*\n";
   for (const ro of ROUTES_TO_AMHARA) {
     const counts = await Reg.aggregate([{ $match: { routeId: ro.id } }, { $group: { _id: "$status", n: { $sum: 1 } } }]);
     const m = {};
     counts.forEach((c) => { m[c._id] = c.n; });
     const total = await routeWeight(ro.id);
-    txt += `${ro.emoji} ${ro.label}\ná ˆá‰ƒá‹µ: ${m.approved || 0} | á á‰°áˆ»: ${m.reviewing || 0} | á‹«áˆ áŠ¨á ˆáˆˆ: ${m.pending || 0} | á‰°áˆ áŠ³áˆ : ${m.sent || 0} | ${total}/${ro.targetKg} áŠªáˆŽ\n\n`;
+    txt += `${ro.emoji} ${ro.label}\nፈቃድ: ${m.approved || 0} | ፍተሻ: ${m.reviewing || 0} | ያልከፈለ: ${m.pending || 0} | ተልኳል: ${m.sent || 0} | ${total}/${ro.targetKg} ኪሎ\n\n`;
   }
-  txt += "*áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£*\n";
+  txt += "*አማራ ክልል → አዲስ አበባ*\n";
   for (const ro of ROUTES_TO_AA) {
     const counts = await Reg.aggregate([{ $match: { routeId: ro.id } }, { $group: { _id: "$status", n: { $sum: 1 } } }]);
     const m = {};
     counts.forEach((c) => { m[c._id] = c.n; });
     const total = await routeWeight(ro.id);
-    txt += `${ro.emoji} ${ro.label}\ná ˆá‰ƒá‹µ: ${m.approved || 0} | á á‰°áˆ»: ${m.reviewing || 0} | á‹«áˆ áŠ¨á ˆáˆˆ: ${m.pending || 0} | á‰°áˆ áŠ³áˆ : ${m.sent || 0} | ${total}/${ro.targetKg} áŠªáˆŽ\n\n`;
+    txt += `${ro.emoji} ${ro.label}\nፈቃድ: ${m.approved || 0} | ፍተሻ: ${m.reviewing || 0} | ያልከፈለ: ${m.pending || 0} | ተልኳል: ${m.sent || 0} | ${total}/${ro.targetKg} ኪሎ\n\n`;
   }
   await ctx.reply(txt, { parse_mode: "Markdown" });
 });
 
-/* â”€â”€ Collector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Collector ──────────────────────────────────────────── */
 bot.action("col_pick", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply(
-    "áŠ á‰…áŒ£áŒ« áˆ áˆ¨áŒ¥:",
+    "አቅጣጫ ምረጥ:",
     Markup.inlineKeyboard([
-      [Markup.button.callback("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ ", "col_dir_toamhara")],
-      [Markup.button.callback("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£", "col_dir_toaa")],
+      [Markup.button.callback("አዲስ አበባ → አማራ ክልል", "col_dir_toamhara")],
+      [Markup.button.callback("አማራ ክልል → አዲስ አበባ", "col_dir_toaa")],
     ]),
   );
 });
-bot.action("col_dir_all", async(ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+bot.action("col_dir_toamhara", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ :", Markup.inlineKeyboard(ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `col_${r.id}`)])));
+  await ctx.reply("አዲስ አበባ → አማራ ክልል:", Markup.inlineKeyboard(ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `col_${r.id}`)])));
 });
 bot.action("col_dir_toaa", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£:", Markup.inlineKeyboard(ROUTES_TO_AA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `col_${r.id}`)])));
+  await ctx.reply("አማራ ክልል → አዲስ አበባ:", Markup.inlineKeyboard(ROUTES_TO_AA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `col_${r.id}`)])));
 });
 bot.action(/^col_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   ctx.session = { step: "COL_LOC", colRoute: ctx.match[1] };
-  await ctx.reply("á‹«áˆ‰á‰ á‰µáŠ• á‰¦á‰³ á‹«áŒ‹áˆ©:", locKb());
+  await ctx.reply("ያሉበትን ቦታ ያጋሩ:", locKb());
 });
 
-/* â”€â”€ Print â”€â
+/* ── Print ──────────────────────────────────────────────── */
 bot.action("print_pick", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply(
-    "áŠ á‰…áŒ£áŒ« áˆ áˆ¨áŒ¥:",
+    "አቅጣጫ ምረጥ:",
     Markup.inlineKeyboard([
-      [Markup.button.callback("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ ", "prnt_dir_toamhara")],
-      [Markup.button.callback("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£", "prnt_dir_toaa")],
+      [Markup.button.callback("አዲስ አበባ → አማራ ክልል", "prnt_dir_toamhara")],
+      [Markup.button.callback("አማራ ክልል → አዲስ አበባ", "prnt_dir_toaa")],
     ]),
   );
 });
 bot.action("prnt_dir_toamhara", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ â€” áˆ˜áˆµáˆ˜áˆ áˆ áˆ áˆ¨áŒ¥:", Markup.inlineKeyboard(ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `prnt_${r.id}`)])));
+  await ctx.reply("አዲስ አበባ → አማራ ክልል — መስመር ምረጥ:", Markup.inlineKeyboard(ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `prnt_${r.id}`)])));
 });
 bot.action("prnt_dir_toaa", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£ â€” áˆ˜áˆµáˆ˜áˆ áˆ áˆ¨áŒ¥:", Markup.inlineKeyboard(ROUTES_TO_AA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `prnt_${r.id}`)])));
+  await ctx.reply("አማራ ክልል → አዲስ አበባ — መስመር ምረጥ:", Markup.inlineKeyboard(ROUTES_TO_AA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `prnt_${r.id}`)])));
 });
 bot.action(/^prnt_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await handlePrint(ctx, ctx.match[1]);
 });
 
-/* â”€â”€ Channel â”€â
+/* ── Channel ────────────────────────────────────────────── */
 bot.action("channel_panel", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   await ctx.reply(
-    `á‰»áŠ“áˆ : ${CHANNEL_ID || "áŠ áˆ á‰°á‰€áˆ˜áŒ áˆ "}`,
+    `ቻናል: ${CHANNEL_ID || "አልተቀመጠም"}`,
     Markup.inlineKeyboard([
-      [Markup.button.callback("áá‰°áˆ» áˆ‹áŠ­", "ch_test")],
-      [Markup.button.callback("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ áˆ›áˆµá‰³á‹ˆá‰‚á‹«", "ch_dir_toamhara")],
-      [Markup.button.callback("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£ áˆ›áˆµá‰³á‹ˆá‰‚á‹«", "ch_dir_toaa")],
+      [Markup.button.callback("ፍተሻ ላክ", "ch_test")],
+      [Markup.button.callback("አዲስ አበባ → አማራ ክልል ማስታወቂያ", "ch_dir_toamhara")],
+      [Markup.button.callback("አማራ ክልል → አዲስ አበባ ማስታወቂያ", "ch_dir_toaa")],
     ]),
   );
 });
 bot.action("ch_dir_toamhara", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply("áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ :", Markup.inlineKeyboard(ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `ch_ann_${r.id}`)])));
+  await ctx.reply("አዲስ አበባ → አማራ ክልል:", Markup.inlineKeyboard(ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `ch_ann_${r.id}`)])));
 });
 bot.action("ch_dir_toaa", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  await ctx.reply("áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£:", Markup.inlineKeyboard(ROUTES_TO_AA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `ch_ann_${r.id}`))));
+  await ctx.reply("አማራ ክልል → አዲስ አበባ:", Markup.inlineKeyboard(ROUTES_TO_AA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `ch_ann_${r.id}`)])));
 });
 bot.action("ch_test", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  if (!CHANNEL_ID) return ctx.reply("CHANNEL_ID áŠ áˆá‰°á‰€áˆ˜áŒ áˆ");
+  if (!CHANNEL_ID) return ctx.reply("CHANNEL_ID አልተቀመጠም");
   try {
-    await bot.telegram.sendMessage(CHANNEL_ID, "á á‰°áˆ» á‰°áˆ³áŠá‰·áˆ ");
-    await ctx.reply("á‰°áˆ³áŠ­á‰·áˆ");
+    await bot.telegram.sendMessage(CHANNEL_ID, "ፍተሻ ተሳክቷል");
+    await ctx.reply("ተሳክቷል");
   } catch (e) {
-    await ctx.reply(`áŠ áˆ á‰°áˆ³áŠ«áˆ : ${e.message}`);
+    await ctx.reply(`አልተሳካም: ${e.message}`);
   }
 });
 bot.action(/^ch_ann_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("á ˆá‰ƒá‹µ á‹¨áˆˆá‹Žá‰µáˆ ").catch(() => {}); return; }
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  if (!CHANNEL_ID) return ctx.reply("CHANNEL_ID áŠ áˆá‰°á‰€áˆ˜áŒ áˆ");
+  if (!CHANNEL_ID) return ctx.reply("CHANNEL_ID አልተቀመጠም");
   const ro = byRoute(ctx.match[1]);
   if (!ro) return;
   const total = await routeWeight(ro.id);
   try {
     await bot.telegram.sendMessage(
       CHANNEL_ID,
-      `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n\ná‰€áŒ¥á‰³ áŠ¨ áŒˆá‰ áˆ¬á‹Žá‰½ â€” áˆáŠ«áˆ½ áŠ¥áŠ“ á ˆáŒ£áŠ•!\n${SUPPORT_PHONE}`,
+      `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n\nቀጥታ ከ ገበሬዎች — ርካሽ እና ፈጣን!\n${SUPPORT_PHONE}`,
       { parse_mode: "Markdown" },
     );
-    await ctx.reply(`á‰°áˆáŠ³áˆ â€” ${ro.label}`);
+    await ctx.reply(`ተልኳል — ${ro.label}`);
   } catch (e) {
-    await ctx.reply(`áŠ áˆ á‰°áˆ³áŠ«áˆ : ${e.message}`);
+    await ctx.reply(`አልተሳካም: ${e.message}`);
   }
 });
 
-/* â”€â”€ Admin commands â”€â
+/* ── Admin commands ─────────────────────────────────────── */
 bot.command("report_now", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   await sendDailyReport();
-  await ctx.reply("áˆªá –áˆá‰µ á‰°áˆ áŠ³áˆ ");
+  await ctx.reply("ሪፖርት ተልኳል");
 });
 
 bot.command("stats", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   const now = new Date(),
     date = now.toLocaleDateString("en-GB") + " " + now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  let toAmKg = 0, toAmPeople = 0, toAmRev = 0, toAAKg = 0, toAAPeople = 0, toAArev = 0;
-  let txt = `*Quick Stats* â€” ${date}\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n*áŠ á‹²áˆµ áŠ á‰ á‰£ â†' áŠ áˆ›áˆ« áŠáˆ áˆ *\n`;
+  let toAmharaKg = 0, toAmharaPeople = 0, toAmharaRev = 0, toAAKg = 0, toAAPeople = 0, toAArev = 0;
+  let txt = `*Quick Stats* — ${date}\n━━━━━━━━━━━━━━━━━━━━\n\n*አዲስ አበባ → አማራ ክልል*\n`;
   for (const ro of ROUTES_TO_AMHARA) {
     const agg = await Reg.aggregate([{ $match: { routeId: ro.id } }, { $group: { _id: "$status", n: { $sum: 1 }, kg: { $sum: "$weightKg" } } }]);
     const m = {};
@@ -1876,10 +1876,10 @@ bot.command("stats", async (ctx) => {
       kg = ["pending", "reviewing", "approved", "sent"].reduce((s, st) => s + (m[st]?.kg || 0), 0),
       rev = kg * SHIP_PER_KG;
     toAmharaKg += kg; toAmharaPeople += people; toAmharaRev += rev;
-    if (!people) { txt += `${ro.emoji} ${ro.label}: _áˆá‹áŒˆá‰£ á‹¨áˆˆáˆ_\n`; continue; }
-    txt += `${ro.emoji} ${ro.label}\n ${people} | ${kg}áŠa | á ˆá‰ƒá‹μ: ${m.approved?.n || 0} | á á‰°áˆ»: ${m.reviewing?.n || 0} | á‹«áˆ áŠ ̈á ˆáˆˆ: ${m.pending?.n || 0} | á‰°áˆ áŠ3áˆ : ${m.sent?.n || 0}\n áŒ. field field‹«: ${rev.toLocaleString()} field\n`;
+    if (!people) { txt += `${ro.emoji} ${ro.label}: _ምዝገባ የለም_\n`; continue; }
+    txt += `${ro.emoji} ${ro.label}\n   ${people} ሰው | ${kg}ኪ | ፈቃድ: ${m.approved?.n || 0} | ፍተሻ: ${m.reviewing?.n || 0} | ያልከፈለ: ${m.pending?.n || 0} | ተልኳል: ${m.sent?.n || 0}\n   ጭ. ክፍያ: ${rev.toLocaleString()} ብር\n`;
   }
-  txt += `\n*áŠ áˆ›áˆ« áŠáˆ áˆ â†' áŠ á‹²áˆµ áŠ á‰ á‰£*\n`;
+  txt += `\n*አማራ ክልል → አዲስ አበባ*\n`;
   for (const ro of ROUTES_TO_AA) {
     const agg = await Reg.aggregate([{ $match: { routeId: ro.id } }, { $group: { _id: "$status", n: { $sum: 1 }, kg: { $sum: "$weightKg" } } }]);
     const m = {};
@@ -1888,18 +1888,18 @@ bot.command("stats", async (ctx) => {
       kg = ["pending", "reviewing", "approved", "sent"].reduce((s, st) => s + (m[st]?.kg || 0), 0),
       rev = kg * SHIP_PER_KG;
     toAAKg += kg; toAAPeople += people; toAArev += rev;
-    if (!people) { txt += `${ro.emoji} ${ro.label}: _áˆá‹áŒˆá‰£ á‹¨áˆˆáˆ_\n`; continue; }
-    txt += `${ro.emoji} ${ro.label}\n ${people} | ${kg}áŠa | á ˆá‰ƒá‹μ: ${m.approved?.n || 0} | á á‰°áˆ»: ${m.reviewing?.n || 0} | á‹«áˆ áŠ ̈á ˆáˆˆ: ${m.pending?.n || 0} | á‰°áˆ áŠ3áˆ : ${m.sent?.n || 0}\n áŒ. field field‹«: ${rev.toLocaleString()} field\n`;
+    if (!people) { txt += `${ro.emoji} ${ro.label}: _ምዝገባ የለም_\n`; continue; }
+    txt += `${ro.emoji} ${ro.label}\n   ${people} ሰው | ${kg}ኪ | ፈቃድ: ${m.approved?.n || 0} | ፍተሻ: ${m.reviewing?.n || 0} | ያልከፈለ: ${m.pending?.n || 0} | ተልኳል: ${m.sent?.n || 0}\n   ጭ. ክፍያ: ${rev.toLocaleString()} ብር\n`;
   }
-  const gP = toAmharaPeople + toAAPeople , gK = toAmharaKg + toAAKg , gR = toAmharaRev + toAArev , gReg = gK * REG_PER_KG ;
-  txt += `\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n*áŒ á‰…áˆ‹áˆ‹ á‹µáˆ áˆ*\n${gP} áˆ°á‹ | ${gK} áŠªáˆŽ\náˆ á‹ : ${gReg.toLocaleString()} á‰¥ | áŒ: ${gR.toLocaleString()} á‰¥ | á‹µáˆ áˆ: ${(gReg + gR).toLocaleString()} á‰¥`;
+  const gP = toAmharaPeople + toAAPeople, gK = toAmharaKg + toAAKg, gR = toAmharaRev + toAArev, gReg = gK * REG_PER_KG;
+  txt += `\n━━━━━━━━━━━━━━━━━━━━\n*ጠቅላላ ድምር*\n${gP} ሰው | ${gK} ኪሎ\nምዝ: ${gReg.toLocaleString()} ብ | ጭ: ${gR.toLocaleString()} ብ | ድምር: ${(gReg + gR).toLocaleString()} ብ`;
   await ctx.reply(txt, { parse_mode: "Markdown" });
 });
 
 bot.command("broadcast", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   const text = ctx.message.text.replace(/^\/broadcast\s*/i, "").trim();
-  if (!text) return ctx.reply("áŠ áŒ á‰ƒá‰€áˆ : /broadcast áˆ˜áˆ á‹•áŠá‰µ");
+  if (!text) return ctx.reply("አጠቃቀም: /broadcast መልዕክት");
   const users = await Reg.distinct("userId", { status: { $nin: ["rejected"] } });
   let sent = 0, failed = 0;
   for (const uid of users) {
@@ -1907,28 +1907,28 @@ bot.command("broadcast", async (ctx) => {
     catch { failed++; }
     await new Promise((r) => setTimeout(r, 50));
   }
-  await ctx.reply(`á‰°áˆáŠ³áˆ: ${sent} | áŠ áˆá‹°áˆ¨áˆ³á‰¸á‹áˆ: ${failed}`);
+  await ctx.reply(`ተልኳል: ${sent} | አልደረሳቸውም: ${failed}`);
 });
 
 bot.command("prices", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   const lines = GB_PRODUCTS.map((p) => {
-    const ul = p.unit === "liter" ? "áˆŠá‰µáˆ" : "áŠªáˆŽ";
-    return `${p.emoji} *${p.label}* (${p.id}) â€” ${p.pricePerKg} price/${ul}`;
+    const ul = p.unit === "liter" ? "ሊትር" : "ኪሎ";
+    return `${p.emoji} *${p.label}* (${p.id}) — ${p.pricePerKg} ብር/${ul}`;
   }).join("\n");
   await ctx.reply(
-    `*áŠ áˆ áŠ“á‹Š á‹‹áŒ‹á‹Žá‰½*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n${lines}\n\n` +
-      `á‹‹áŒ‹ áˆˆáˆ˜á‰€á‹¨áˆ:\n\`/setprice <id> <á‹‹áŒ‹>\`\n\náˆ áˆ³áˆŒ: \`/setprice teff 80\``,
+    `*አሁናዊ ዋጋዎች*\n━━━━━━━━━━━━━━━━\n\n${lines}\n\n` +
+      `ዋጋ ለመቀየር:\n\`/setprice <id> <ዋጋ>\`\n\nምሳሌ: \`/setprice teff 80\``,
     { parse_mode: "Markdown" },
   );
 });
 
 bot.command("setprice", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 3) {
     return ctx.reply(
-      `*áŠ áŒ á‰ƒá‰€áˆ :* \`/setprice <id> <á‹‹áŒ‹>\`\n\n*áˆ áˆ³áˆŒ:*\n` +
+      `*አጠቃቀም:* \`/setprice <id> <ዋጋ>\`\n\n*ምሳሌ:*\n` +
         GB_PRODUCTS.map((p) => `\`/setprice ${p.id} ${p.pricePerKg}\``).join("\n"),
       { parse_mode: "Markdown" },
     );
@@ -1938,41 +1938,41 @@ bot.command("setprice", async (ctx) => {
   const prod = byProduct(id);
   if (!prod)
     return ctx.reply(
-      `â Œ áˆ áˆá‰µ áŠ áˆ á‰°áŒˆáŠ˜áˆ : *${id}*\n\ná‰µáŠáŠáˆˆáŠ› IDs: ${GB_PRODUCTS.map((p) => `\`${p.id}\``).join(", ")}`,
+      `❌ ምርት አልተገኘም: *${id}*\n\nትክክለኛ IDs: ${GB_PRODUCTS.map((p) => `\`${p.id}\``).join(", ")}`,
       { parse_mode: "Markdown" },
     );
-  if (!price || price <= 0 || price > 100000) return ctx.reply("âŒ á‰µáŠ­áŠ­áˆˆáŠ› á‹‹áŒ‹ á‹«áˆµáŒˆá‰¡ (áˆˆáˆáˆ³áˆŒ: 80)");
-  const oldPrice = product.pricePerKg;
-  product.pricePerKg = price;
+  if (!price || price <= 0 || price > 100000) return ctx.reply("❌ ትክክለኛ ዋጋ ያስገቡ (ለምሳሌ: 80)");
+  const oldPrice = prod.pricePerKg;
+  prod.pricePerKg = price;
   await setSetting(`price_${id}`, price);
-  const ul = prod.unit === "liter" ? "áˆŠá‰µáˆ" : "áŠªáˆŽ";
+  const ul = prod.unit === "liter" ? "ሊትር" : "ኪሎ";
   await ctx.reply(
-    `âœ… *á‹‹áŒ‹ á‰°á‰€á‹áˆ¯áˆ !*\n\n${prod.emoji} *${prod.label}*\ná‰€á‹µáˆž: ${oldPrice} á‰¥áˆ/${ul}\náŠ áˆ áŠ•: *${price} á‰¥áˆ/${ul}*`,
+    `✅ *ዋጋ ተቀይሯል!*\n\n${prod.emoji} *${prod.label}*\nቀድሞ: ${oldPrice} ብር/${ul}\nአሁን: *${price} ብር/${ul}*`,
     { parse_mode: "Markdown" },
   );
   for (const aid of ADMIN_IDS) {
     if (aid === ctx.from.id) continue;
     bot.telegram.sendMessage(
       aid,
-      `${prod.emoji} *${prod.label}* á‹‹áŒ‹ á‰°á‰€á‹­áˆ¯áˆ\n${oldPrice} â†’ *${price}* á‰¥áˆ­/${ul}\ná‰  @${ctx.from.username || ctx.from.first_name}`,
+      `${prod.emoji} *${prod.label}* ዋጋ ተቀይሯል\n${oldPrice} → *${price}* ብር/${ul}\nበ @${ctx.from.username || ctx.from.first_name}`,
       { parse_mode: "Markdown" },
     ).catch(() => {});
   }
 });
 
 bot.command("exportgb", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   const parts = ctx.message.text.trim().split(/\s+/);
   const filterProd = parts[1]?.toLowerCase() || "all";
   const query = filterProd === "all" ? {} : { productId: filterProd };
   const records = await GBReg.find(query).sort({ createdAt: 1 }).lean();
   if (!records.length) {
     return ctx.reply(
-      filterProd === "all" ? "GB áˆ á‹ áŒˆá‰£ á‹¨áˆˆáˆ " : `â Œ áˆ áˆá‰µ áŠ áˆ á‰°áŒˆáŠ˜áˆ á‹ˆá‹áˆ áˆ á‹ áŒˆá‰£ á‹¨áˆˆáˆ : *${filterProd}*`,
+      filterProd === "all" ? "GB ምዝገባ የለም" : `❌ ምርት አልተገኘም ወይም ምዝገባ የለም: *${filterProd}*`,
       { parse_mode: "Markdown" },
     );
   }
-  const header = "á‰°.á‰ ,áˆ áˆá‰µ,áˆ™áˆ‰ áˆµáˆ ,áˆµáˆ áŠ,áŠªáˆŽ/áˆŠá‰µáˆ,á‹‹áŒ‹/áŠªáˆŽ,áŒ á‰…áˆ‹áˆ‹ á‹‹áŒ‹ (á‰¥áˆ),á‰€áŠ•";
+  const header = "ተ.ቁ,ምርት,ሙሉ ስም,ስልክ,ኪሎ/ሊትር,ዋጋ/ኪሎ,ጠቅላላ ዋጋ (ብር),ቀን";
   const rows = records.map((r, i) => {
     const prod = byProduct(r.productId);
     const date = new Date(r.createdAt).toLocaleDateString("en-GB");
@@ -1980,29 +1980,29 @@ bot.command("exportgb", async (ctx) => {
   });
   const csv = [header, ...rows].join("\n");
   const buf = Buffer.from("\uFEFF" + csv, "utf-8");
-  const prodLabel = filterProd === "all" ? "áˆáˆ‰áˆ" : byProduct(filterProd)?.label || filterProd;
+  const prodLabel = filterProd === "all" ? "ሁሉም" : byProduct(filterProd)?.label || filterProd;
   const fname = `GB_${filterProd}_${new Date().toISOString().slice(0, 10)}.csv`;
   await ctx.replyWithDocument(
     { source: buf, filename: fname },
     {
       caption:
-        `ðŸ“Š *GB áˆ á‹ áŒˆá‰£ â€” ${prodLabel}*\n` +
-        `áŒ á‰…áˆ‹áˆ‹: ${records.length} áˆ°á‹ \n` +
-        `áŒ á‰…áˆ‹áˆ‹ áŠªáˆŽ: ${records.reduce((s, r) => s + (r.weightKg || 0), 0)}\n` +
-        `áŒ á‰…áˆ‹áˆ‹ á‹‹áŒ‹: ${records.reduce((s, r) => s + (r.totalCost || 0), 0).toLocaleString()} á‰¥áˆ`,
+        `📊 *GB ምዝገባ — ${prodLabel}*\n` +
+        `ጠቅላላ: ${records.length} ሰው\n` +
+        `ጠቅላላ ኪሎ: ${records.reduce((s, r) => s + (r.weightKg || 0), 0)}\n` +
+        `ጠቅላላ ዋጋ: ${records.reduce((s, r) => s + (r.totalCost || 0), 0).toLocaleString()} ብር`,
       parse_mode: "Markdown",
     },
   );
 });
 
 bot.command("backup", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   const adminId = ctx.from.id;
   const today = new Date().toISOString().slice(0, 10);
-  await ctx.reply("â ³ Backup áŠ¥á‹¨á‰°á‹˜áŒ‹áŒ€ áŠ á‹ â€” á‰µáŠ•áˆ½ á‹áŒ á‰¥á‰ ...");
+  await ctx.reply("⏳ Backup እየተዘጋጀ ነው — ትንሽ ይጠብቁ...");
   const gbRecords = await GBReg.find({}).sort({ createdAt: 1 }).lean();
   if (gbRecords.length) {
-    const header = "á‰°.á‰ ,áˆ áˆá‰µ,áˆ™áˆ‰ áˆµáˆ ,áˆµáˆ áŠ,áŠªáˆŽ/áˆŠá‰µáˆ,á‹‹áŒ‹/áŠªáˆŽ,áŒ á‰…áˆ‹áˆ‹ á‹‹áŒ‹ (á‰¥áˆ),á‰€áŠ•";
+    const header = "ተ.ቁ,ምርት,ሙሉ ስም,ስልክ,ኪሎ/ሊትር,ዋጋ/ኪሎ,ጠቅላላ ዋጋ (ብር),ቀን";
     const rows = gbRecords.map((r, i) => {
       const prod = byProduct(r.productId);
       const date = new Date(r.createdAt).toLocaleDateString("en-GB");
@@ -2015,9 +2015,9 @@ bot.command("backup", async (ctx) => {
       { source: buf, filename: `backup_GB_${today}.csv` },
       {
         caption:
-          `ðŸ“¦ *GB áˆ á‹ áŒˆá‰¦á‰½ â€” Backup*\n` +
-          `áŒ á‰…áˆ‹áˆ‹: ${gbRecords.length} áˆ°á‹ \n` +
-          `áŒ á‰…áˆ‹áˆ‹ áŠªáˆŽ: ${gbRecords.reduce((s, r) => s + (r.weightKg || 0), 0)}\n` +
+          `📦 *GB ምዝገቦች — Backup*\n` +
+          `ጠቅላላ: ${gbRecords.length} ሰው\n` +
+          `ጠቅላላ ኪሎ: ${gbRecords.reduce((s, r) => s + (r.weightKg || 0), 0)}\n` +
           `${today}`,
         parse_mode: "Markdown",
       },
@@ -2025,7 +2025,7 @@ bot.command("backup", async (ctx) => {
   }
   const cargoRecords = await Reg.find({}).sort({ createdAt: 1 }).lean();
   if (cargoRecords.length) {
-    const header2 = "á‰°.á‰ ,áŠ á‰…áŒ£áŒ«,áˆ™áˆ‰ áˆµáˆ ,áˆµáˆ áŠ,áŒáŠ á‰µ,áŠªáˆŽ,áŠá á‹« (á‰¥áˆ),áˆ áŠ”á‰³,á‰€áŠ•";
+    const header2 = "ተ.ቁ,አቅጣጫ,ሙሉ ስም,ስልክ,ጭነት,ኪሎ,ክፍያ (ብር),ሁኔታ,ቀን";
     const rows2 = cargoRecords.map((r, i) => {
       const ro = byRoute(r.routeId);
       const date = new Date(r.createdAt).toLocaleDateString("en-GB");
@@ -2038,9 +2038,9 @@ bot.command("backup", async (ctx) => {
       { source: buf2, filename: `backup_Cargo_${today}.csv` },
       {
         caption:
-          `ðŸšš *Cargo áˆ á‹ áŒˆá‰¦á‰½ â€” Backup*\n` +
-          `áŒ á‰…áˆ‹áˆ‹: ${cargoRecords.length} áˆ°á‹ \n` +
-          `áŒ á‰…áˆ‹áˆ‹ áŠªáˆŽ: ${cargoRecords.reduce((s, r) => s + (r.weightKg || 0), 0)}\n` +
+          `🚚 *Cargo ምዝገቦች — Backup*\n` +
+          `ጠቅላላ: ${cargoRecords.length} ሰው\n` +
+          `ጠቅላላ ኪሎ: ${cargoRecords.reduce((s, r) => s + (r.weightKg || 0), 0)}\n` +
           `${today}`,
         parse_mode: "Markdown",
       },
@@ -2049,66 +2049,66 @@ bot.command("backup", async (ctx) => {
   const total = gbRecords.length + cargoRecords.length;
   await ctx.reply(
     total === 0
-      ? "âš ï¸ áˆ á‹ áŒˆá‰£ á‹¨áˆˆáˆ â€” Backup áˆ áŠ•áˆ áŠ áˆ á‰°áˆ‹áŠ¨áˆ "
-      : `âœ… *Backup á‰°áŒ áŠ“á‰€á‰€!*\nðŸ“¦ GB: ${gbRecords.length} áˆ°á‹ \nðŸšš Cargo: ${cargoRecords.length} áˆ°á‹ on Telegram on ¢`,
+      ? "⚠️ ምዝገባ የለም — Backup ምንም አልተላከም"
+      : `✅ *Backup ተጠናቀቀ!*\n📦 GB: ${gbRecords.length} ሰው\n🚚 Cargo: ${cargoRecords.length} ሰው\n\nፋይሎቹ ወደ ግልዎ Telegram ተልከዋል።`,
     { parse_mode: "Markdown" },
   );
 });
 
 bot.command("fees", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   await ctx.reply(
-    `*áŠ áˆ áŠ“á‹Š áŠá á‹«á‹Žá‰½*\nâ” â” â” â” â” â” â” â” â” â” â” â” â” â” â” â” \n\n` +
-      `ðŸ“‹ *á‹¨áˆ á‹ áŒˆá‰£ (áŠ áŒˆáˆ áŒ áˆŽá‰µ) áŠá á‹«:* ${REG_PER_KG} á‰¥áˆ/áŠªáˆŽ\n` +
-      `ðŸšš *á‹¨á‰µáˆ«áŠ•áˆµá –áˆá‰µ áŠá á‹«:* ${SHIP_PER_KG} á‰¥áˆ/áŠaáˆŽ\n\n` +
-      `áŠá á‹« áˆˆáˆ˜á‰€á‹¨áˆ:\n` +
-      `\`/setfee reg <á‹‹áŒ‹>\` â€” á‹¨áˆ á‹ áŒˆá‰£ áŠá á‹«\n` +
-      `\`/setfee ship <á‹‹áŒ‹>\` â€” á‹¨á‰µáˆ«áŠ•áˆµá –áˆá‰µ áŠá á‹«\n\n` +
-      `áˆ áˆ³áˆŒ: \`/setfee reg 12\``,
+    `*አሁናዊ ክፍያዎች*\n━━━━━━━━━━━━━━━━\n\n` +
+      `📋 *የምዝገባ (አገልግሎት) ክፍያ:* ${REG_PER_KG} ብር/ኪሎ\n` +
+      `🚚 *የትራንስፖርት ክፍያ:* ${SHIP_PER_KG} ብር/ኪሎ\n\n` +
+      `ክፍያ ለመቀየር:\n` +
+      `\`/setfee reg <ዋጋ>\` — የምዝገባ ክፍያ\n` +
+      `\`/setfee ship <ዋጋ>\` — የትራንስፖርት ክፍያ\n\n` +
+      `ምሳሌ: \`/setfee reg 12\``,
     { parse_mode: "Markdown" },
   );
 });
 
 bot.command("setfee", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("Please send me a message ");
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   const parts = ctx.message.text.trim().split(/\s+/);
   if (parts.length < 3) {
     return ctx.reply(
-      `*áŠ áŒ á‰ƒá‰€áˆ:*\n` +
-        `\`/setfee reg <á‹‹áŒ‹>\` â€” setfee á‹ áŒˆá‰£ (áŠ áŒˆáˆ áŒ áˆŽá‰μ) áŠá á‹«\n` +
-        `\`/setfee ship <á‹‹áŒ‹>\` â€” á‹¨á‰µáˆ«áŠ•áˆµá –áˆá‰µ áŠá á‹«\n\n` +
-        `áˆáˆ³áˆŒ: \`/setfee reg 12\`\náˆáˆ³áˆŒ: \`/setfee ship 30\``,
+      `*አጠቃቀም:*\n` +
+        `\`/setfee reg <ዋጋ>\` — የምዝገባ (አገልግሎት) ክፍያ\n` +
+        `\`/setfee ship <ዋጋ>\` — የትራንስፖርት ክፍያ\n\n` +
+        `ምሳሌ: \`/setfee reg 12\`\nምሳሌ: \`/setfee ship 30\``,
       { parse_mode: "Markdown" },
     );
   }
   const type = parts[1].toLowerCase();
   const price = parseFloat(parts[2]);
   if (!["reg", "ship"].includes(type))
-    return ctx.reply(`â Œ á‹“á‹áŠ á‰µ áˆµáˆ…á‰°á‰µá ¢ \`reg\` á‹ˆá‹áˆ \`ship\` á‹«áˆµáŒˆá‰¡`, { parse_mode: "Markdown" });
+    return ctx.reply(`❌ ዓይነት ስህተት። \`reg\` ወይም \`ship\` ያስገቡ`, { parse_mode: "Markdown" });
   if (!price || price <= 0 || price > 100000)
-    return ctx.reply("â Œ á‰µáŠáŠáˆˆáŠ› á‹‹áŒ‹ á‹«áˆµáŒˆá‰¡ (áˆˆáˆ áˆ³áˆŒ: 12)");
+    return ctx.reply("❌ ትክክለኛ ዋጋ ያስገቡ (ለምሳሌ: 12)");
   if (type === "reg") {
     const old = REG_PER_KG;
     REG_PER_KG = price;
     await setSetting("fee_reg_per_kg", price);
-    await ctx.reply(`âœ… *á‹¨áˆ á‹ áŒˆá‰£ áŠá á‹« á‰°á‰€á‹áˆ¯áˆ !*\n\ná‰€á‹µáˆž: ${old} á‰¥áˆ/áŠªáˆŽ\náŠ áˆ áŠ•: *${price} á‰¥áˆ/áŠªáˆŽ*`, { parse_mode: "Markdown" });
+    await ctx.reply(`✅ *የምዝገባ ክፍያ ተቀይሯል!*\n\nቀድሞ: ${old} ብር/ኪሎ\nአሁን: *${price} ብር/ኪሎ*`, { parse_mode: "Markdown" });
     for (const aid of ADMIN_IDS) {
       if (aid === ctx.from.id) continue;
-      bot.telegram.sendMessage(aid, `ðŸ“‹ á‹¨áˆá‹áŒˆá‰£ áŠ­áá‹« á‰°á‰€á‹­áˆ¯áˆ\n${old} â†’ *${price}* á‰¥áˆ­/áŠªáˆŽ\ná‰  @${ctx.from.username || ctx.from.first_name}`, { parse_mode: "Markdown" }).catch(() => {});
+      bot.telegram.sendMessage(aid, `📋 የምዝገባ ክፍያ ተቀይሯል\n${old} → *${price}* ብር/ኪሎ\nበ @${ctx.from.username || ctx.from.first_name}`, { parse_mode: "Markdown" }).catch(() => {});
     }
   } else {
     const old = SHIP_PER_KG;
     SHIP_PER_KG = price;
     await setSetting("fee_ship_per_kg", price);
-    await ctx.reply(`âœ… *á‹¨á‰µáˆ«áŠ•áˆµá –áˆá‰µ áŠá á‹« á‰°á‰€á‹áˆ¯áˆ !*\n\ná‰€á‹µáˆž: ${old} á‰¥áˆ/áŠªáˆŽ\náŠ áˆ áŠ•: *${price} á‰¥áˆ/áŠªáˆŽ*`, { parse_mode: "Markdown" });
+    await ctx.reply(`✅ *የትራንስፖርት ክፍያ ተቀይሯል!*\n\nቀድሞ: ${old} ብር/ኪሎ\nአሁን: *${price} ብር/ኪሎ*`, { parse_mode: "Markdown" });
     for (const aid of ADMIN_IDS) {
       if (aid === ctx.from.id) continue;
-      bot.telegram.sendMessage(aid, `ðŸšš á‹¨á‰µáˆ«áŠ•áˆµá –áˆá‰µ áŠá á‹« á‰°á‰€á‹áˆ{¯áˆ \n${old} *$ â†}'*price* á‰¥áˆ/áŠªáˆŽ\ná‰ @${ctx.from.username || ctx.from.first_name}`, { parse_mode: "Markdown" }).catch(() => {});
+      bot.telegram.sendMessage(aid, `🚚 የትራንስፖርት ክፍያ ተቀይሯል\n${old} → *${price}* ብር/ኪሎ\nበ @${ctx.from.username || ctx.from.first_name}`, { parse_mode: "Markdown" }).catch(() => {});
     }
   }
 });
 
-/* â”€â”€â”€ 23. LAUNCH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── 23. LAUNCH ────────────────────────────────────────── */
 const PORT = Number(process.env.PORT) || 3000;
 
 function notifyAdmins(msg) {
@@ -2120,11 +2120,11 @@ async function connectMongo() {
   await mongoose.connect(MONGO_URI, opts);
   console.log("MongoDB connected");
   mongoose.connection.on("disconnected", () => {
-    console.warn("MongoDB disconnected â€” áŠ¥áŠ•á‹°áŒˆáŠ“ áˆˆáˆ˜á‹«á‹«á‹ á‹áˆžáŠáˆ«áˆ ...");
-    notifyAdmins("Database is not available for this account...");
+    console.warn("MongoDB disconnected — እንደገና ለመያያዝ ይሞክራል...");
+    notifyAdmins("⚠️ Database ተቋረጠ — እንደገና ለመያያዝ ይሞክራል...");
     setTimeout(() => { mongoose.connect(MONGO_URI, opts).catch((e) => console.error("MongoDB reconnect failed:", e.message)); }, 5000);
   });
-  mongoose.connection.on("reconnected", () => { console.log("MongoDB reconnected"); notifyAdmins("âœ… Database áŠ¥áŠ•á‹°áŒˆáŠ“ á‰°á‹«á‹«á‹˜"); });
+  mongoose.connection.on("reconnected", () => { console.log("MongoDB reconnected"); notifyAdmins("✅ Database እንደገና ተያያዘ"); });
   mongoose.connection.on("error", (e) => { console.error("MongoDB error:", e.message); });
 }
 
@@ -2155,8 +2155,8 @@ async function main() {
     console.error("bot.launch error:", e.message);
   });
 
-  console.log("Bot started â€” 24/7 active");
-  notifyAdmins(`âœ... Bot á‰°áŒ€áˆ áˆ¯áˆ â€” ${new Date().toLocaleString("en-GB")}\n24/7 active`);
+  console.log("Bot started — 24/7 active");
+  notifyAdmins(`✅ Bot ተጀምሯል — ${new Date().toLocaleString("en-GB")}\n24/7 active`);
 
   process.once("SIGINT", () => { bot.stop("SIGINT"); server.close(); });
   process.once("SIGTERM", () => { bot.stop("SIGTERM"); server.close(); });
@@ -2164,13 +2164,13 @@ async function main() {
 
 process.on("uncaughtException", (err) => {
   console.error("Uncaught Exception:", err.message, err.stack);
-  notifyAdmins(`ðŸš¨ Bot crash (uncaughtException):\n${err.message}`);
+  notifyAdmins(`🚨 Bot crash (uncaughtException):\n${err.message}`);
 });
 
 process.on("unhandledRejection", (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
   console.error("Unhandled Rejection:", msg);
-  notifyAdmins(`ðŸš¨ Bot error (unhandledRejection):\n${msg}`);
+  notifyAdmins(`🚨 Bot error (unhandledRejection):\n${msg}`);
 });
 
 main().catch((e) => {
