@@ -2109,6 +2109,13 @@ export async function startBot() {
 
   startDailyReportScheduler();
 
+  /* ── HTTP health-check server (required by Render web service) ── */
+  const PORT = process.env.PORT || 10000;
+  http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("OK");
+  }).listen(PORT, () => console.log(`Health-check server listening on port ${PORT}`));
+
   bot.launch({ allowedUpdates: ["message", "callback_query", "channel_post"] }).catch((e) => {
     console.error("bot.launch error:", e.message);
   });
