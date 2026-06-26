@@ -123,8 +123,8 @@ const METHODS = [
   {
     id: "cbe",
     emoji: "🏦",
-    label: "CBE ባንክ",
-    info: process.env.CBE_INFO || "CBE: 1000370308447",
+    label: "CBE Birr",
+    info: process.env.CBE_INFO || "CBE Birr: 1000370308447",
   },
 ];
 
@@ -505,7 +505,7 @@ async function checkGBCapacity(productId) {
 }
 
 /* ─── 10. AI PAYMENT CHECK ──────────────────────────────── */
-async function checkPayment(fileId, reg) {
+async function checkPaymentAuto(fileId, reg) {
   if (!anthropic) return null;
   try {
     const link = await bot.telegram.getFileLink(fileId);
@@ -513,10 +513,9 @@ async function checkPayment(fileId, reg) {
     if (!res.ok) throw new Error("fetch fail");
     const b64 = Buffer.from(await res.arrayBuffer()).toString("base64");
     const mime = res.headers.get("content-type") || "image/jpeg";
-    const m = byMethod(reg.paymentMethod);
     const msg = await anthropic.messages.create({
       model: "claude-sonnet-4-5",
-      max_tokens: 300,
+      max_tokens: 400,
       messages: [
         {
           role: "user",
@@ -524,7 +523,11 @@ async function checkPayment(fileId, reg) {
             { type: "image", source: { type: "base64", media_type: mime, data: b64 } },
             {
               type: "text",
-              text: `Payment screenshot. Method:${m?.label} Account:"${m?.info}" Amount:${reg.totalPrice}ETB\nReply ONLY JSON: {"amount_match":true/false,"account_match":true/false,"looks_edited":true/false,"confidence":"high|medium|low","reason":"short amharic"}`,
+              text: `This is a payment screenshot. Check if payment was made to either of these accounts:\n` +
+                `1) Telebirr: 0960336138\n` +
+                `2) CBE Birr: 1000370308447\n\n` +
+                `Expected amount: ${reg.totalPrice} ETB\n\n` +
+                `Reply ONLY with JSON (no markdown): {"amount_match":true/false,"account_match":true/false,"detected_method":"telebirr"/"cbe"/null,"looks_edited":true/false,"confidence":"high"/"medium"/"low","reason":"short amharic explanation"}`,
             },
           ],
         },
@@ -537,6 +540,8 @@ async function checkPayment(fileId, reg) {
     return null;
   }
 }
+// keep old name as alias for any remaining references
+const checkPayment = checkPaymentAuto;
 const aiOk = (r) =>
   r?.amount_match && r?.account_match && !r?.looks_edited && r?.confidence === "high";
 const aiSummary = (r) =>
@@ -881,6 +886,7 @@ bot.action(/^pm_(.+)$/, async (ctx) => {
   const m = byMethod(ctx.match[1]);
   if (!m) return;
   const { d, routeId } = ctx.session;
+  ctx.session = {};
   const r = await Reg.create({
     userId: ctx.from.id,
     username: ctx.from.username || "",
@@ -894,7 +900,6 @@ bot.action(/^pm_(.+)$/, async (ctx) => {
     status: "pending",
   });
   await checkCapacity(routeId);
-  ctx.session = { step: "AWAIT_PHOTO", locRegId: String(r._id) };
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   const acct = m.info.includes(":") ? m.info.split(":").slice(1).join(":").trim() : m.info;
   await ctx.reply(
@@ -902,8 +907,8 @@ bot.action(/^pm_(.+)$/, async (ctx) => {
       `━━━━━━━━━━━━━━━━\n` +
       `ቁጥር: \`${acct}\`\n\n` +
       `*የምዝገባ ክፍያ: ${r.totalPrice} ብር* (${d.kg} ኪሎ × ${REG_PER_KG} ብር/ኪሎ)\n\n` +
-      `✅ ክፍያ ፈጽመው *የደረሰኝ ፎቶ (screenshot)* ወዲያው ይላኩ።\n` +
-      `📸 ፎቶ እዚሁ chat ላይ ይላኩ — ወዲያው AI ያረጋግጣል!`,
+      `⚠️ ክፍያ ከፈጸሙ በኋላ *የደረሰኝ ፎቶ (screenshot)* ይላኩ።\n` +
+      `ፎቶ ሳይልኩ ምዝገባ አይጠናቀቅም!`,
     { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
   );
 });
@@ -1078,21 +1083,34 @@ bot.on("text", async (ctx, next) => {
   if (step === "WEIGHT") {
     const kg = parseFloat(txt.replace(/[^0-9.]/g, ""));
     if (!kg || kg <= 0 || kg > 2000) return ctx.reply("ትክክለኛ ቁጥር ያስገቡ (1–2000)");
-    ctx.session.d.kg = kg;
-    ctx.session.step = "PAYMETHOD";
+    const { routeId, d } = ctx.session;
+    d.kg = kg;
+    // ምዝገባ ፍጠር
+    const r = await Reg.create({
+      userId: ctx.from.id,
+      username: ctx.from.username || "",
+      fullName: d.name,
+      phone: d.phone,
+      routeId,
+      cargoDesc: d.cargo,
+      weightKg: kg,
+      totalPrice: kg * REG_PER_KG,
+      paymentMethod: null,
+      status: "pending",
+    });
+    await checkCapacity(routeId);
+    ctx.session = { step: "AWAIT_PHOTO", locRegId: String(r._id) };
     return ctx.reply(
-      `*ማጠቃለያ*\n━━━━━━━━━━━━━━━━\n` +
-        `ስም: ${ctx.session.d.name}\n` +
-        `ጭነት: ${ctx.session.d.cargo} — *${kg} ኪሎ*\n\n` +
-        `💳 *የምዝገባ (አገልግሎት) ክፍያ: ${kg * REG_PER_KG} ብር* (${kg} ኪሎ × ${REG_PER_KG} ብር/ኪሎ)\n` +
-        `_ሌሎቹ ክፍያዎች ዕቃ ሲወጣ በሌላ መንገድ ይስተካከላሉ_\n\n` +
-        `ክፍያ ዘዴ ይምረጡ:`,
-      {
-        parse_mode: "Markdown",
-        ...Markup.inlineKeyboard(
-          METHODS.map((m) => [Markup.button.callback(`${m.emoji} ${m.label}`, `pm_${m.id}`)]),
-        ),
-      },
+      `✅ *ምዝገባ ተቀምጧል!*\n━━━━━━━━━━━━━━━━\n` +
+        `👤 ${d.name}  |  📞 ${d.phone}\n` +
+        `📦 ${d.cargo} — *${kg} ኪሎ*\n\n` +
+        `💳 *የምዝገባ ክፍያ: ${r.totalPrice} ብር* (${kg} ኪሎ × ${REG_PER_KG} ብር/ኪሎ)\n\n` +
+        `━━━━━━━━━━━━━━━━\n` +
+        `📱 *ቴሌብር:* \`0960336138\`\n` +
+        `🏦 *CBE Birr:* \`1000370308447\`\n` +
+        `━━━━━━━━━━━━━━━━\n\n` +
+        `👆 ከላይ ወደ አንዱ ቁጥር ክፍያ ፈጽመው\n📸 *የደረሰኝ ፎቶ (screenshot)* ወዲያው ይላኩ — AI ያረጋግጣል!`,
+      { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
     );
   }
 
@@ -1206,37 +1224,35 @@ bot.on("photo", async (ctx) => {
   r.status = "reviewing";
   await r.save();
 
-  await ctx.reply("📸 ፎቶ ደርሷል — AI እየተረጋገጠ ነው... ትንሽ ይጠብቁ⏳");
+  await ctx.reply("📸 ፎቶ ደርሷል — AI እየተረጋገጠ ነው... ⏳");
 
-  const verdict = await checkPayment(fileId, r);
+  // AI check — ሁለቱም ቁጥሮች ይፈትሻል
+  const verdict = await checkPaymentAuto(fileId, r);
   r.aiVerdict = verdict;
+  // paymentMethod detect
+  if (!r.paymentMethod && verdict?.detected_method) {
+    r.paymentMethod = verdict.detected_method;
+  }
   const autoOk = AI_AUTO_APPROVE && aiOk(verdict);
   if (autoOk) { r.status = "approved"; r.aiAutoApproved = true; }
   await r.save();
 
-  // ለተጠቃሚ ውጤቱን ንገር
-  await bot.telegram
-    .sendMessage(
-      ctx.from.id,
-      autoOk
-        ? `✅ *ክፍያ ተረጋግጧል!*\n\n${card(r.toObject())}\n\nጭነትዎ ሲላክ ይነገርዎታል.\n${SUPPORT_PHONE}`
-        : `⏳ ፎቶ ደርሷል። ክፍያ በሠራተኛ እየተፈተሸ ነው — ትንሽ ይጠብቁ.\n${SUPPORT_PHONE}`,
-      { parse_mode: "Markdown" },
-    )
-    .catch(() => {});
+  await bot.telegram.sendMessage(
+    ctx.from.id,
+    autoOk
+      ? `✅ *ክፍያ ተረጋግጧል!*\n\n${card(r.toObject())}\n\nጭነትዎ ሲላክ ይነገርዎታል.\n${SUPPORT_PHONE}`
+      : `⏳ ፎቶ ደርሷል። ክፍያ በሠራተኛ እየተፈተሸ ነው — ትንሽ ይጠብቁ.\n${SUPPORT_PHONE}`,
+    { parse_mode: "Markdown" },
+  ).catch(() => {});
 
-  // አድራሻ ጠይቅ
   ctx.session = { step: "LOC", locRegId: String(r._id), locTries: 0 };
   await ctx.reply("📍 አድራሻዎን ያጋሩ — ቤትዎ ይሰበሰብለዎታል:", locKb());
 
-  // ለ admin ፎቶ + AI ውጤት ላክ
   const caption = aiSummary(verdict) + "\n\n" + (autoOk ? "✅ AI ያረጋገጠ\n\n" : "") + card(r.toObject(), true);
-  const kb = Markup.inlineKeyboard([
-    [
-      Markup.button.callback(autoOk ? "ሰርዝ" : "ፈቀድ", autoOk ? `no_${r._id}` : `ok_${r._id}`),
-      Markup.button.callback("ከልክል", `no_${r._id}`),
-    ],
-  ]);
+  const kb = Markup.inlineKeyboard([[
+    Markup.button.callback(autoOk ? "ሰርዝ" : "ፈቀድ", autoOk ? `no_${r._id}` : `ok_${r._id}`),
+    Markup.button.callback("ከልክል", `no_${r._id}`),
+  ]]);
   for (const aid of ADMIN_IDS)
     bot.telegram.sendPhoto(aid, fileId, { caption, parse_mode: "Markdown", ...kb }).catch(() => {});
 });
