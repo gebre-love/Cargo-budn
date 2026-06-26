@@ -881,7 +881,6 @@ bot.action(/^pm_(.+)$/, async (ctx) => {
   const m = byMethod(ctx.match[1]);
   if (!m) return;
   const { d, routeId } = ctx.session;
-  ctx.session = {};
   const r = await Reg.create({
     userId: ctx.from.id,
     username: ctx.from.username || "",
@@ -895,6 +894,7 @@ bot.action(/^pm_(.+)$/, async (ctx) => {
     status: "pending",
   });
   await checkCapacity(routeId);
+  ctx.session = { step: "AWAIT_PHOTO", locRegId: String(r._id) };
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   const acct = m.info.includes(":") ? m.info.split(":").slice(1).join(":").trim() : m.info;
   await ctx.reply(
@@ -902,8 +902,8 @@ bot.action(/^pm_(.+)$/, async (ctx) => {
       `━━━━━━━━━━━━━━━━\n` +
       `ቁጥር: \`${acct}\`\n\n` +
       `*የምዝገባ ክፍያ: ${r.totalPrice} ብር* (${d.kg} ኪሎ × ${REG_PER_KG} ብር/ኪሎ)\n\n` +
-      `⚠️ ክፍያ ከፈጸሙ በኋላ *የደረሰኝ ፎቶ (screenshot)* ይላኩ።\n` +
-      `ፎቶ ሳይልኩ ምዝገባ አይጠናቀቅም!`,
+      `✅ ክፍያ ፈጽመው *የደረሰኝ ፎቶ (screenshot)* ወዲያው ይላኩ።\n` +
+      `📸 ፎቶ እዚሁ chat ላይ ይላኩ — ወዲያው AI ያረጋግጣል!`,
     { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
   );
 });
@@ -1054,6 +1054,7 @@ bot.on("text", async (ctx, next) => {
     return;
   }
 
+  if (step === "AWAIT_PHOTO") return ctx.reply("📸 እባክዎ *የደረሰኝ ፎቶ (screenshot)* ይላኩ — ጽሑፍ አይቀበልም።", { parse_mode: "Markdown" });
   if (step === "PAYMETHOD") return ctx.reply("ከቁልፍ ይምረጡ");
   if (step === "NAME") {
     if (txt.length < 3) return ctx.reply("ሙሉ ስም ያስገቡ (3+ ፊደል)");
@@ -1190,30 +1191,46 @@ bot.hears("⏭️ ሳላጋራ ጨርስ", async (ctx) => {
 
 /* ─── 21. PAYMENT PHOTO ─────────────────────────────────── */
 bot.on("photo", async (ctx) => {
-  const r = await Reg.findOne({ userId: ctx.from.id, status: "pending" }).sort({ createdAt: -1 });
+  // ምዝገባ ፈልግ — ከ session ወይም ከ pending status
+  let r;
+  const { step, locRegId } = ctx.session || {};
+  if (step === "AWAIT_PHOTO" && locRegId) {
+    r = await Reg.findById(locRegId);
+  } else {
+    r = await Reg.findOne({ userId: ctx.from.id, status: "pending" }).sort({ createdAt: -1 });
+  }
   if (!r) return ctx.reply("ምዝገባ አልተገኘም። አቅጣጫ ይምረጡ", await mainKb(ctx.from?.id));
+
   const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
   r.paymentFileId = fileId;
   r.status = "reviewing";
   await r.save();
-  await ctx.reply("ፎቶ ደርሷል — ክፍያ እየተረጋገጠ ነው...");
+
+  await ctx.reply("📸 ፎቶ ደርሷል — AI እየተረጋገጠ ነው... ትንሽ ይጠብቁ⏳");
+
   const verdict = await checkPayment(fileId, r);
   r.aiVerdict = verdict;
   const autoOk = AI_AUTO_APPROVE && aiOk(verdict);
   if (autoOk) { r.status = "approved"; r.aiAutoApproved = true; }
   await r.save();
-  bot.telegram
+
+  // ለተጠቃሚ ውጤቱን ንገር
+  await bot.telegram
     .sendMessage(
       ctx.from.id,
       autoOk
-        ? `*ክፍያ ተፈቅዷል!*\n\n${card(r.toObject())}\n\nጭነትዎ ሲላክ ይነገርዎታል.\n${SUPPORT_PHONE}`
-        : `ፎቶ ደርሷል. ክፍያ እየተፈተሸ ነው — ትንሽ ይጠብቁ.\n${SUPPORT_PHONE}`,
+        ? `✅ *ክፍያ ተረጋግጧል!*\n\n${card(r.toObject())}\n\nጭነትዎ ሲላክ ይነገርዎታል.\n${SUPPORT_PHONE}`
+        : `⏳ ፎቶ ደርሷል። ክፍያ በሠራተኛ እየተፈተሸ ነው — ትንሽ ይጠብቁ.\n${SUPPORT_PHONE}`,
       { parse_mode: "Markdown" },
     )
     .catch(() => {});
+
+  // አድራሻ ጠይቅ
   ctx.session = { step: "LOC", locRegId: String(r._id), locTries: 0 };
-  await ctx.reply("አድራሻዎን ያጋሩ — ቤትዎ ይሰበሰብለዎታል:", locKb());
-  const caption = aiSummary(verdict) + "\n\n" + (autoOk ? "AI ያረጋገጠ\n\n" : "") + card(r.toObject(), true);
+  await ctx.reply("📍 አድራሻዎን ያጋሩ — ቤትዎ ይሰበሰብለዎታል:", locKb());
+
+  // ለ admin ፎቶ + AI ውጤት ላክ
+  const caption = aiSummary(verdict) + "\n\n" + (autoOk ? "✅ AI ያረጋገጠ\n\n" : "") + card(r.toObject(), true);
   const kb = Markup.inlineKeyboard([
     [
       Markup.button.callback(autoOk ? "ሰርዝ" : "ፈቀድ", autoOk ? `no_${r._id}` : `ok_${r._id}`),
