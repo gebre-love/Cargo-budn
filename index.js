@@ -373,7 +373,7 @@ function neighborhoodKb() {
   for (let i = 0; i < NEIGHBORHOODS.length; i += 3) {
     rows.push(
       NEIGHBORHOODS.slice(i, i + 3).map((n) =>
-        Markup.button.callback(n, `nbr_${encodeURIComponent(n)}`),
+        Markup.button.callback(n, `nbr_${n}`),
       ),
     );
   }
@@ -802,7 +802,7 @@ bot.action(/^more_(.+)$/, async (ctx) => {
 bot.action(/^nbr_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const raw  = ctx.match[1];
-  const nbr  = decodeURIComponent(raw).slice(0, 60);
+  const nbr  = raw.slice(0, 60);
   const step = ctx.session?.step;
 
   if (step === "NEIGHBORHOOD") {
@@ -1380,7 +1380,7 @@ bot.action("lst_by_neighborhood", async (ctx) => {
   if (!nbrs.length) return ctx.reply("ምዝገባ የለም");
   const buttons = nbrs
     .filter(Boolean)
-    .map((n) => [Markup.button.callback(`🏘 ${n}`, `nbr_list_${encodeURIComponent(n)}`)]);
+    .map((n) => [Markup.button.callback(`🏘 ${n}`, `nbr_list_${n}`)]);
   buttons.push([Markup.button.callback("ሁሉም ሰፈሮች", "nbr_list_all")]);
   await ctx.reply("*በሰፈር ይምረጡ:*", { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) });
 });
@@ -1389,7 +1389,7 @@ bot.action(/^nbr_list_(.+)$/, async (ctx) => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   const raw = ctx.match[1];
-  const nbr = raw === "all" ? null : decodeURIComponent(raw);
+  const nbr = raw === "all" ? null : raw;
   const query = nbr
     ? { neighborhood: nbr, status: { $in: ACTIVE } }
     : { status: { $in: ACTIVE } };
