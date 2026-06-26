@@ -32,12 +32,11 @@ const anthropic = ANTHROPIC_KEY
 
 /* ─── 2. የቡድን ግዥ ምርቶች ──────────────────────────────────── */
 const GB_PRODUCTS = [
-  { id: "teff",   emoji: "🌾", label: "ጤፍ",    unit: "kg",    targetKg: Number(process.env.GB_TEFF_KG)   || 5000, pricePerKg: Number(process.env.GB_TEFF_PRICE)   || 75  },
-  { id: "oil",    emoji: "🛢",  label: "ዘይት",   unit: "liter", targetKg: Number(process.env.GB_OIL_KG)    || 3000, pricePerKg: Number(process.env.GB_OIL_PRICE)    || 120 },
-  { id: "sugar",  emoji: "🍚", label: "ስኳር",   unit: "kg",    targetKg: Number(process.env.GB_SUGAR_KG)  || 3000, pricePerKg: Number(process.env.GB_SUGAR_PRICE)  || 55  },
-  { id: "flour",  emoji: "🌽", label: "ዱቄት",   unit: "kg",    targetKg: Number(process.env.GB_FLOUR_KG)  || 3000, pricePerKg: Number(process.env.GB_FLOUR_PRICE)  || 60  },
-  { id: "onion",  emoji: "🧅", label: "ሽንኩርት", unit: "kg",    targetKg: Number(process.env.GB_ONION_KG)  || 2000, pricePerKg: Number(process.env.GB_ONION_PRICE)  || 30  },
-  { id: "potato", emoji: "🥔", label: "ድንች",   unit: "kg",    targetKg: Number(process.env.GB_POTATO_KG) || 2000, pricePerKg: Number(process.env.GB_POTATO_PRICE) || 25  },
+  { id: "teff",   emoji: "🌾", label: "ጤፍ",    unit: "kg",    targetKg: Number(process.env.GB_TEFF_KG)  || 5000, pricePerKg: Number(process.env.GB_TEFF_PRICE)  || 75  },
+  { id: "oil",    emoji: "🛢",  label: "ዘይት",   unit: "liter", targetKg: Number(process.env.GB_OIL_KG)   || 3000, pricePerKg: Number(process.env.GB_OIL_PRICE)   || 120 },
+  { id: "sugar",  emoji: "🍚", label: "ስኳር",   unit: "kg",    targetKg: Number(process.env.GB_SUGAR_KG) || 3000, pricePerKg: Number(process.env.GB_SUGAR_PRICE) || 55  },
+  { id: "flour",  emoji: "🌽", label: "ዱቄት",   unit: "kg",    targetKg: Number(process.env.GB_FLOUR_KG) || 3000, pricePerKg: Number(process.env.GB_FLOUR_PRICE) || 60  },
+  { id: "onion",  emoji: "🧅", label: "ሽንኩርት", unit: "kg",    targetKg: Number(process.env.GB_ONION_KG) || 2000, pricePerKg: Number(process.env.GB_ONION_PRICE) || 30  },
 ];
 const byProduct = (id) => GB_PRODUCTS.find((p) => p.id === id);
 const unitLabel = (p) => (p.unit === "liter" ? "ሊትር" : "ኪሎ");
@@ -2081,6 +2080,7 @@ bot.command("setfee", async (ctx) => {
 });
 
 /* ─── 23. LAUNCH ────────────────────────────────────────── */
+const PORT = Number(process.env.PORT) || 3000;
 
 function notifyAdmins(msg) {
   for (const aid of ADMIN_IDS) bot.telegram.sendMessage(aid, msg).catch(() => {});
@@ -2099,22 +2099,23 @@ async function connectMongo() {
   mongoose.connection.on("error", (e) => console.error("MongoDB error:", e.message));
 }
 
-export async function startBot() {
+async function main() {
   await connectMongo();
   await loadPricesFromDB();
   console.log("Prices loaded from DB");
 
+  const server = http.createServer((_, res) => { res.writeHead(200, { "Content-Type": "text/plain" }); res.end("OK"); });
+  await new Promise((resolve) => server.listen(PORT, () => { console.log("Port", PORT); resolve(); }));
+
   try { await bot.telegram.deleteWebhook({ drop_pending_updates: true }); console.log("Webhook deleted"); }
   catch (e) { console.warn("deleteWebhook:", e.message); }
 
-  startDailyReportScheduler();
+  const RURL = (process.env.RENDER_EXTERNAL_URL || "").trim();
+  if (RURL) {
+    setInterval(() => https.get(`${RURL}/`).on("error", () => {}), 14 * 60 * 1000);
+  }
 
-  /* ── HTTP health-check server (required by Render web service) ── */
-  const PORT = process.env.PORT || 10000;
-  http.createServer((req, res) => {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.end("OK");
-  }).listen(PORT, () => console.log(`Health-check server listening on port ${PORT}`));
+  startDailyReportScheduler();
 
   bot.launch({ allowedUpdates: ["message", "callback_query", "channel_post"] }).catch((e) => {
     console.error("bot.launch error:", e.message);
@@ -2123,6 +2124,22 @@ export async function startBot() {
   console.log("Bot started — 24/7 active");
   notifyAdmins(`✅ Bot ተጀምሯል — ${new Date().toLocaleString("en-GB")}\n24/7 active`);
 
-  process.once("SIGINT",  () => { bot.stop("SIGINT"); });
-  process.once("SIGTERM", () => { bot.stop("SIGTERM"); });
+  process.once("SIGINT",  () => { bot.stop("SIGINT");  server.close(); });
+  process.once("SIGTERM", () => { bot.stop("SIGTERM"); server.close(); });
 }
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err.message, err.stack);
+  notifyAdmins(`🚨 Bot crash:\n${err.message}`);
+});
+
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  console.error("Unhandled Rejection:", msg);
+  notifyAdmins(`🚨 Bot error:\n${msg}`);
+});
+
+main().catch((e) => {
+  console.error("Fatal startup error:", e.message);
+  setTimeout(() => main().catch(() => process.exit(1)), 10_000);
+});
