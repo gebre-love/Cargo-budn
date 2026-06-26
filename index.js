@@ -367,13 +367,23 @@ async function mainKb(userId) {
   return Markup.keyboard(rows).resize();
 }
 
-/* [CHANGE 3] Neighborhood selection keyboard */
+/* [CHANGE 3] Neighborhood selection keyboard
+   [FIX — BUTTON_DATA_INVALID] Telegram caps callback_data at
+   64 BYTES. Amharic text is multi-byte in UTF-8 (each character
+   is ~3 bytes), and encodeURIComponent() on top of that turns
+   each byte into a 3-character "%XX" sequence — e.g. a name
+   like "ኮልፌ ቀራኒዮ" balloons past the limit instantly, which is
+   exactly what was crashing with "400: BUTTON_DATA_INVALID".
+   Fix: never put the label text in callback_data — use the
+   array INDEX instead ("nbr_7"), which is always tiny no matter
+   what language or length the label is, then look the real
+   value up from NEIGHBORHOODS[idx] in the action handler. */
 function neighborhoodKb() {
   const rows = [];
   for (let i = 0; i < NEIGHBORHOODS.length; i += 3) {
     rows.push(
-      NEIGHBORHOODS.slice(i, i + 3).map((n) =>
-        Markup.button.callback(n, `nbr_${encodeURIComponent(n)}`),
+      NEIGHBORHOODS.slice(i, i + 3).map((n, j) =>
+        Markup.button.callback(n, `nbr_${i + j}`),
       ),
     );
   }
@@ -798,11 +808,15 @@ bot.action(/^more_(.+)$/, async (ctx) => {
   });
 });
 
-/* ─── [CHANGE 3] NEIGHBORHOOD SELECTION CALLBACK ────────── */
-bot.action(/^nbr_(.+)$/, async (ctx) => {
+/* ─── [CHANGE 3 / FIX] NEIGHBORHOOD SELECTION CALLBACK ───
+   Now matches a numeric index ("nbr_7") instead of an
+   encoded label, and resolves the real name via the array.
+   This is the core fix for BUTTON_DATA_INVALID. */
+bot.action(/^nbr_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  const raw  = ctx.match[1];
-  const nbr  = decodeURIComponent(raw).slice(0, 60);
+  const idx  = Number(ctx.match[1]);
+  const nbr  = NEIGHBORHOODS[idx];
+  if (!nbr) return;
   const step = ctx.session?.step;
 
   if (step === "NEIGHBORHOOD") {
@@ -1371,25 +1385,29 @@ bot.action("lst_unverified_phones", async (ctx) => {
   }
 });
 
-/* ─── [CHANGE 3] LIST BY NEIGHBORHOOD ───────────────────── */
+/* ─── [CHANGE 3 / FIX] LIST BY NEIGHBORHOOD ─────────────────
+   Same BUTTON_DATA_INVALID risk existed here: neighborhood
+   values come straight from the DB and could be any length,
+   so encodeURIComponent(n) was not safe either. Now we cache
+   the actual distinct neighborhood strings in the session and
+   reference them only by index in callback_data. */
 bot.action("lst_by_neighborhood", async (ctx) => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
-  /* Get all distinct neighborhoods from active registrations */
   const nbrs = await Reg.distinct("neighborhood", { status: { $in: ACTIVE } });
-  if (!nbrs.length) return ctx.reply("ምዝገባ የለም");
-  const buttons = nbrs
-    .filter(Boolean)
-    .map((n) => [Markup.button.callback(`🏘 ${n}`, `nbr_list_${encodeURIComponent(n)}`)]);
-  buttons.push([Markup.button.callback("ሁሉም ሰፈሮች", "nbr_list_all")]);
+  const valid = nbrs.filter(Boolean);
+  if (!valid.length) return ctx.reply("ምዝገባ የለም");
+  const buttons = valid.map((n, i) => [Markup.button.callback(`🏘 ${n}`, `nbrlst_${i}`)]);
+  buttons.push([Markup.button.callback("ሁሉም ሰፈሮች", "nbrlst_all")]);
+  ctx.session = { ...ctx.session, nbrListCache: valid };
   await ctx.reply("*በሰፈር ይምረጡ:*", { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) });
 });
 
-bot.action(/^nbr_list_(.+)$/, async (ctx) => {
+bot.action(/^nbrlst_(.+)$/, async (ctx) => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
   await ctx.answerCbQuery().catch(() => {});
   const raw = ctx.match[1];
-  const nbr = raw === "all" ? null : decodeURIComponent(raw);
+  const nbr = raw === "all" ? null : (ctx.session?.nbrListCache?.[Number(raw)] || null);
   const query = nbr
     ? { neighborhood: nbr, status: { $in: ACTIVE } }
     : { status: { $in: ACTIVE } };
@@ -1475,7 +1493,7 @@ bot.command("resetwelcome", async (ctx) => {
   if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   await setSetting("welcome_message", null);
   ctx.session = {};
-  await ctx.reply("✅ Welcome Message ወደ default ተመልሷል।", { parse_mode: "Markdown" });
+  await ctx.reply("✅ Welcome Message ወደ default ተመልሷል።", { parse_mode: "Markdown" });
 });
 
 /* ── Menu Manager ────────────────────────────────────────── */
@@ -2108,38 +2126,4 @@ async function main() {
   await new Promise((resolve) => server.listen(PORT, () => { console.log("Port", PORT); resolve(); }));
 
   try { await bot.telegram.deleteWebhook({ drop_pending_updates: true }); console.log("Webhook deleted"); }
-  catch (e) { console.warn("deleteWebhook:", e.message); }
-
-  const RURL = (process.env.RENDER_EXTERNAL_URL || "").trim();
-  if (RURL) {
-    setInterval(() => https.get(`${RURL}/`).on("error", () => {}), 14 * 60 * 1000);
-  }
-
-  startDailyReportScheduler();
-
-  bot.launch({ allowedUpdates: ["message", "callback_query", "channel_post"] }).catch((e) => {
-    console.error("bot.launch error:", e.message);
-  });
-
-  console.log("Bot started — 24/7 active");
-  notifyAdmins(`✅ Bot ተጀምሯል — ${new Date().toLocaleString("en-GB")}\n24/7 active`);
-
-  process.once("SIGINT",  () => { bot.stop("SIGINT");  server.close(); });
-  process.once("SIGTERM", () => { bot.stop("SIGTERM"); server.close(); });
-}
-
-process.on("uncaughtException", (err) => {
-  console.error("Uncaught Exception:", err.message, err.stack);
-  notifyAdmins(`🚨 Bot crash:\n${err.message}`);
-});
-
-process.on("unhandledRejection", (reason) => {
-  const msg = reason instanceof Error ? reason.message : String(reason);
-  console.error("Unhandled Rejection:", msg);
-  notifyAdmins(`🚨 Bot error:\n${msg}`);
-});
-
-main().catch((e) => {
-  console.error("Fatal startup error:", e.message);
-  setTimeout(() => main().catch(() => process.exit(1)), 10_000);
-});
+  catch (e) { console.warn("deleteWebhook:", e.m
