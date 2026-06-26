@@ -689,7 +689,7 @@ bot.catch((err, ctx) => {
 });
 
 /* ─── 14. WELCOME ───────────────────────────────────────── */
-function welcomeText(name) {
+function defaultWelcomeText(name) {
   return (
     `👋 *እንኳን ወደ Group Buying በደህና መጡ, ${name}!*\n\n` +
     `2️⃣ ምርትን ቀጥታ ከፋብሪካና ከገበሬዎች በማምጣት የኑሮ ውድነቱን ለመጣል ተነስተናል።\n\n` +
@@ -702,16 +702,26 @@ function welcomeText(name) {
   );
 }
 
+async function welcomeText(name) {
+  const custom = await getSetting("welcome_message", null);
+  if (custom) {
+    return custom
+      .replace(/\{name\}/g, name)
+      .replace(/\{fee\}/g, String(REG_PER_KG));
+  }
+  return defaultWelcomeText(name);
+}
+
 bot.start(async (ctx) => {
   ctx.session = {};
-  await ctx.reply(welcomeText(ctx.from?.first_name || "እንኳን ደህና መጡ"), {
+  await ctx.reply(await welcomeText(ctx.from?.first_name || "እንኳን ደህና መጡ"), {
     parse_mode: "Markdown",
     ...(await mainKb(ctx.from?.id)),
   });
 });
 bot.command("help", async (ctx) => {
   ctx.session = {};
-  await ctx.reply(welcomeText(ctx.from?.first_name || "እንኳን ደህና መጡ"), {
+  await ctx.reply(await welcomeText(ctx.from?.first_name || "እንኳን ደህና መጡ"), {
     parse_mode: "Markdown",
     ...(await mainKb(ctx.from?.id)),
   });
@@ -917,6 +927,18 @@ bot.on("text", async (ctx, next) => {
     ...GB_PRODUCTS.map((p) => `${p.emoji} ${p.label}`),
   ];
   if (reserved.includes(txt)) return next();
+
+  if (step === "ADMIN_WELCOME") {
+    await setSetting("welcome_message", txt);
+    ctx.session = {};
+    await ctx.reply("✅ *Welcome Message ተቀይሯል!*", { parse_mode: "Markdown" });
+    const preview = await welcomeText(ctx.from?.first_name || "እንኳን ደህና መጡ");
+    await ctx.reply(`*👁 ቅድመ-እይታ:*\n\n${preview}`, {
+      parse_mode: "Markdown",
+      ...(await mainKb(ctx.from?.id)),
+    });
+    return;
+  }
 
   if (step === "GB_NAME") {
     if (txt.length < 3) return ctx.reply("ሙሉ ስም ያስገቡ (3+ ፊደል)");
@@ -1193,13 +1215,11 @@ bot.on("photo", async (ctx) => {
     const verdict = await checkPayment(fileId, fakeReg);
     const autoOk = AI_AUTO_APPROVE && aiOk(verdict);
     if (!autoOk && verdict && !verdict.amount_match && !verdict.account_match) {
-      // ክፍያ አልተረጋገጠም — DB አይፈጠርም
+      // ክፍያ አርክተኛ አይደለም — DB አይፈጠርም፣ ለ admin አይላክም (ግልጽ ችግር ስለሆነ)
       await ctx.reply(
         `❌ *ክፍያ አልተረጋገጠም*\n\n${aiSummary(verdict)}\n\nእባክዎ ትክክለኛ screenshot ይላኩ።`,
         { parse_mode: "Markdown" },
       );
-      for (const aid of ADMIN_IDS)
-        bot.telegram.sendPhoto(aid, fileId, { caption: `⚠️ GB rejected screenshot\n${aiSummary(verdict)}\n${gbName} (${gbPhone})`, parse_mode: "Markdown" }).catch(() => {});
       return;
     }
     // ክፍያ OK — አሁን DB ፍጠር
@@ -1277,29 +1297,34 @@ bot.on("photo", async (ctx) => {
 });
 
 /* ─── 22. ADMIN PANEL ───────────────────────────────────── */
+function adminPanelKb(grpOn) {
+  const grpIcon = grpOn ? "🟢" : "🔴";
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("አዲስ አበባ → አማራ ክልል ምዝገቦች", "lst_dir_toamhara")],
+    [Markup.button.callback("አማራ ክልል → አዲስ አበባ ምዝገቦች", "lst_dir_toaa")],
+    [Markup.button.callback("ያልተፈቀዱ ክፍያዎች", "lst_pay")],
+    [Markup.button.callback("ጭነት ሰብሳቢ (አቅራቢያ ዝርዝር)", "col_pick")],
+    [Markup.button.callback("ጭነት ላክ (ለደንበኞች ማሳወቂያ)", "snd_pick")],
+    [Markup.button.callback("የጭነት ሪፖርት", "admin_report")],
+    [Markup.button.callback("ቻናል ማስታወቂያ", "channel_panel")],
+    [Markup.button.callback("ዝርዝር አትም (Print Manifest)", "print_pick")],
+    [Markup.button.callback("📦 የቡድን ግዥ ሁኔታ", "gb_status")],
+    [Markup.button.callback("📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ", "gb_broadcast_remain")],
+    [Markup.button.callback("📢 GB ቻናል ማስታወቂያ", "gb_channel_panel")],
+    [Markup.button.callback(`${grpIcon} Group ማስታወቂያ (ምዝገባ Auto-Post)`, "toggle_group_notify")],
+    [Markup.button.callback("💰 ዋጋ ማሻሻያ", "price_panel")],
+    [Markup.button.callback("📋 ምናሌ አስተዳዳሪ (Menu Manager)", "menu_manager")],
+    [Markup.button.callback("📝 Welcome Message ቀይር", "welcome_edit")],
+  ]);
+}
+
 bot.hears("🔧 Admin", async (ctx) => {
   if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
   ctx.session = {};
   const grpOn = await getSetting("group_notify_enabled", true);
-  const grpIcon = grpOn ? "🟢" : "🔴";
   await ctx.reply("*የአስተዳዳሪ ፓነል*", {
     parse_mode: "Markdown",
-    ...Markup.inlineKeyboard([
-      [Markup.button.callback("አዲስ አበባ → አማራ ክልል ምዝገቦች", "lst_dir_toamhara")],
-      [Markup.button.callback("አማራ ክልል → አዲስ አበባ ምዝገቦች", "lst_dir_toaa")],
-      [Markup.button.callback("ያልተፈቀዱ ክፍያዎች", "lst_pay")],
-      [Markup.button.callback("ጭነት ሰብሳቢ (አቅራቢያ ዝርዝር)", "col_pick")],
-      [Markup.button.callback("ጭነት ላክ (ለደንበኞች ማሳወቂያ)", "snd_pick")],
-      [Markup.button.callback("የጭነት ሪፖርት", "admin_report")],
-      [Markup.button.callback("ቻናል ማስታወቂያ", "channel_panel")],
-      [Markup.button.callback("ዝርዝር አትም (Print Manifest)", "print_pick")],
-      [Markup.button.callback("📦 የቡድን ግዥ ሁኔታ", "gb_status")],
-      [Markup.button.callback("📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ", "gb_broadcast_remain")],
-      [Markup.button.callback("📢 GB ቻናል ማስታወቂያ", "gb_channel_panel")],
-      [Markup.button.callback(`${grpIcon} Group ማስታወቂያ (ምዝገባ Auto-Post)`, "toggle_group_notify")],
-      [Markup.button.callback("💰 ዋጋ ማሻሻያ", "price_panel")],
-      [Markup.button.callback("📋 ምናሌ አስተዳዳሪ (Menu Manager)", "menu_manager")],
-    ]),
+    ...adminPanelKb(grpOn),
   });
 });
 
@@ -1335,25 +1360,9 @@ bot.action("back_to_admin", async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   ctx.session = {};
   const grpOn = await getSetting("group_notify_enabled", true);
-  const grpIcon = grpOn ? "🟢" : "🔴";
   await ctx.reply("*የአስተዳዳሪ ፓነል*", {
     parse_mode: "Markdown",
-    ...Markup.inlineKeyboard([
-      [Markup.button.callback("አዲስ አበባ → አማራ ክልል ምዝገቦች", "lst_dir_toamhara")],
-      [Markup.button.callback("አማራ ክልል → አዲስ አበባ ምዝገቦች", "lst_dir_toaa")],
-      [Markup.button.callback("ያልተፈቀዱ ክፍያዎች", "lst_pay")],
-      [Markup.button.callback("ጭነት ሰብሳቢ (አቅራቢያ ዝርዝር)", "col_pick")],
-      [Markup.button.callback("ጭነት ላክ (ለደንበኞች ማሳወቂያ)", "snd_pick")],
-      [Markup.button.callback("የጭነት ሪፖርት", "admin_report")],
-      [Markup.button.callback("ቻናል ማስታወቂያ", "channel_panel")],
-      [Markup.button.callback("ዝርዝር አትም (Print Manifest)", "print_pick")],
-      [Markup.button.callback("📦 የቡድን ግዥ ሁኔታ", "gb_status")],
-      [Markup.button.callback("📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ", "gb_broadcast_remain")],
-      [Markup.button.callback("📢 GB ቻናል ማስታወቂያ", "gb_channel_panel")],
-      [Markup.button.callback(`${grpIcon} Group ማስታወቂያ (ምዝገባ Auto-Post)`, "toggle_group_notify")],
-      [Markup.button.callback("💰 ዋጋ ማሻሻያ", "price_panel")],
-      [Markup.button.callback("📋 ምናሌ አስተዳዳሪ (Menu Manager)", "menu_manager")],
-    ]),
+    ...adminPanelKb(grpOn),
   });
 });
 
@@ -1372,6 +1381,34 @@ bot.action("toggle_group_notify", async (ctx) => {
         : `Group ማስታወቂያ ቆሟል — ምዝገባ ለ Channel/Admin ብቻ ይላካል።`),
     { parse_mode: "Markdown" },
   );
+});
+
+/* ── Welcome Message Editor ──────────────────────────────── */
+bot.action("welcome_edit", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const current = await getSetting("welcome_message", null);
+  ctx.session = { step: "ADMIN_WELCOME" };
+  await ctx.reply(
+    `📝 *Welcome Message ቀይር*\n━━━━━━━━━━━━━━━━\n\n` +
+      (current
+        ? `*አሁናዊ መልዕክት:*\n${current}`
+        : `_አሁን default መልዕክት ነው የሚታየው_\n\n${defaultWelcomeText("[ስም]")}`) +
+      `\n\n━━━━━━━━━━━━━━━━\n` +
+      `👇 *አዲሱን መልዕክት* እንደ ጽሑፍ ይላኩ።\n\n` +
+      `_Placeholders መጠቀም ይችላሉ:_\n` +
+      `\`{name}\` → የተጠቃሚ ስም\n` +
+      `\`{fee}\` → የምዝገባ ክፍያ (አሁን ${REG_PER_KG} ብር/ኪሎ)\n\n` +
+      `ወደ default ለመመለስ /resetwelcome ይጻፉ`,
+    { parse_mode: "Markdown" },
+  );
+});
+
+bot.command("resetwelcome", async (ctx) => {
+  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
+  await setSetting("welcome_message", null);
+  ctx.session = {};
+  await ctx.reply("✅ Welcome Message ወደ default ተመልሷል።", { parse_mode: "Markdown" });
 });
 
 /* ── ምናሌ አስተዳዳሪ ─────────────────────────────────────────── */
