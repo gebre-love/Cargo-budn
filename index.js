@@ -433,6 +433,23 @@ async function mainKb(userId) {
 const backKb = () =>
   Markup.keyboard([["🔙 ወደ ዋናው ምናሌ"]]).resize().oneTime();
 
+/* ── Form step-navigation keyboards ─────────────────────────────
+   ተጠቃሚው form ደረጃዎቹ መካከል ወደፊት / ወደኋላ እንዲሄድ ያስችላሉ          */
+
+/* at NEIGHBORHOOD step → back to name entry */
+const backToNameKb = () =>
+  Markup.keyboard([
+    ["🔙 ስምዎን ቀይር"],
+    ["🔙 ወደ ዋናው ምናሌ"],
+  ]).resize().oneTime();
+
+/* at PHONE step → back to neighborhood entry */
+const backToNbrKb = () =>
+  Markup.keyboard([
+    ["🔙 ሰፈርዎን ቀይር"],
+    ["🔙 ወደ ዋናው ምናሌ"],
+  ]).resize().oneTime();
+
 const dirRoutesKb = (routes) =>
   Markup.inlineKeyboard([
     ...routes.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `goto_${r.id}`)]),
@@ -822,16 +839,7 @@ for (const prod of GB_PRODUCTS) {
 
 /* ─── 17. ROUTE SELECTION ───────────────────────────────── */
 async function startRegistration(ctx, route) {
-  const ex = await Reg.findOne({ userId: ctx.from.id, status: { $nin: ["rejected", "sent"] } }).lean();
-  if (ex) {
-    const ro   = byRoute(ex.routeId);
-    const btns = [Markup.button.callback("ሰርዝ", `del_${ex._id}`)];
-    if (!ex.locationLat) btns.push(Markup.button.callback("አድራሻ ላክ", `addloc_${ex._id}`));
-    return ctx.reply(
-      `⚠️ _አንድ ምዝገባ ብቻ ይፈቀዳል_\n\n` + card(ex) + `\n\n_ሌላ ለመመዝገብ ቀደሙን ሰርዘው ይሞክሩ_`,
-      { parse_mode: "Markdown", ...Markup.inlineKeyboard([btns]) },
-    );
-  }
+  /* ምዝገባ ቁጥር ገደብ የለም — ተጠቃሚ ብዙ ጊዜ ሊመዘገብ ይችላል */
   ctx.session = { step: "NAME", routeId: route.id, d: {} };
   await ctx.reply(`${route.emoji} *${route.label}*\n\nሙሉ ስምዎን ያስገቡ:`, {
     parse_mode: "Markdown",
@@ -902,8 +910,15 @@ bot.action(/^pm_(.+)$/, async (ctx) => {
     `*የምዝገባ ክፍያ: ${r.totalPrice} ብር* (${d.kg} ኪሎ × ${REG_PER_KG} ብር/ኪሎ)\n\n` +
     `⚠️ ክፍያ ከፈጸሙ በኋላ *የደረሰኝ ፎቶ (screenshot)* ይላኩ።\n` +
     `ፎቶ ሳይልኩ ምዝገባ አይጠናቀቅም!`,
-    { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([[
+        Markup.button.callback("➕ ሌላ ጭነት ጨምር", `more_${routeId}`),
+      ]]),
+    },
   );
+  /* ዋናው ምናሌ ተመልሷል */
+  await ctx.reply("ዋናው ምናሌ", await mainKb(ctx.from?.id));
   if (d.phoneUnverified) {
     for (const aid of ADMIN_IDS)
       bot.telegram.sendMessage(
@@ -923,6 +938,38 @@ bot.on("text", async (ctx, next) => {
   if (txt === "🔙 ወደ ዋናው ምናሌ") {
     ctx.session = {};
     await ctx.reply("ዋናው ምናሌ", await mainKb(ctx.from?.id));
+    return;
+  }
+
+  /* ── Step back: GB ሰፈር → ስም ─────────────────────────── */
+  if (txt === "🔙 ስምዎን ቀይር") {
+    if (step === "GB_NEIGHBORHOOD") {
+      ctx.session.step = "GB_NAME";
+      return ctx.reply("ሙሉ ስምዎን እንደገና ያስገቡ:", backKb());
+    }
+    if (step === "NEIGHBORHOOD") {
+      ctx.session.step = "NAME";
+      return ctx.reply("ሙሉ ስምዎን እንደገና ያስገቡ:", backKb());
+    }
+    return;
+  }
+
+  /* ── Step back: ስልክ → ሰፈር ───────────────────────────── */
+  if (txt === "🔙 ሰፈርዎን ቀይር") {
+    if (step === "GB_PHONE") {
+      ctx.session.step = "GB_NEIGHBORHOOD";
+      return ctx.reply(
+        `👤 ${ctx.session.gbName}\n\nሰፈርዎን እንደገና ያስገቡ:`,
+        { parse_mode: "Markdown", ...backToNameKb() },
+      );
+    }
+    if (step === "PHONE") {
+      ctx.session.step = "NEIGHBORHOOD";
+      return ctx.reply(
+        `👤 ${ctx.session.d?.name}\n\nሰፈርዎን እንደገና ያስገቡ:`,
+        { parse_mode: "Markdown", ...backToNameKb() },
+      );
+    }
     return;
   }
 
@@ -1114,18 +1161,25 @@ bot.on("text", async (ctx, next) => {
     ctx.session.step   = "GB_NEIGHBORHOOD";
     return ctx.reply(
       `👤 ${txt}\n\nሰፈርዎን ያስገቡ:`,
-      { parse_mode: "Markdown", ...backKb() },
+      { parse_mode: "Markdown", ...backToNameKb() },
     );
   }
 
   if (step === "GB_NEIGHBORHOOD") {
-    if (txt.length < 2) return ctx.reply("ሰፈርዎን ያስገቡ:", backKb());
+    if (txt.length < 2) return ctx.reply("ሰፈርዎን ያስገቡ:", backToNameKb());
     ctx.session.gbNeighborhood = txt.slice(0, 60);
     ctx.session.step           = "GB_PHONE";
-    return ctx.reply("ስልክ ቁጥርዎን ያስገቡ:", backKb());
+    return ctx.reply("📞 ስልክ ቁጥርዎን ያስገቡ:", backToNbrKb());
   }
 
   if (step === "GB_PHONE") {
+    if (txt === "🔙 ሰፈርዎን ቀይር") {
+      ctx.session.step = "GB_NEIGHBORHOOD";
+      return ctx.reply(
+        `👤 ${ctx.session.gbName}\n\nሰፈርዎን እንደገና ያስገቡ:`,
+        { parse_mode: "Markdown", ...backToNameKb() },
+      );
+    }
     const phone         = txt.replace(/\s/g, "");
     const phoneValid    = /^0[79]\d{8}$/.test(phone) || /^\+251[79]\d{8}$/.test(phone);
     if (!phoneValid) {
@@ -1308,6 +1362,99 @@ bot.on("text", async (ctx, next) => {
   if (step === "GB_AWAIT_PHOTO") return ctx.reply("📸 እባክዎ *የደረሰኝ ፎቶ (screenshot)* ይላኩ — ጽሑፍ አይቀበልም።", { parse_mode: "Markdown" });
   if (step === "PAYMETHOD")     return ctx.reply("ከቁልፍ ይምረጡ");
 
+  /* ── Admin Cash Cargo flow ──────────────────────────────── */
+  if (step === "CARGO_CASH_NAME") {
+    if (txt.length < 3) return ctx.reply("ሙሉ ስም ያስገቡ (3+ ፊደል):", backKb());
+    ctx.session.cargoCashName = txt;
+    ctx.session.step          = "CARGO_CASH_PHONE";
+    return ctx.reply("ደንበኛው ስልክ ቁጥር:", backKb());
+  }
+
+  if (step === "CARGO_CASH_PHONE") {
+    ctx.session.cargoCashPhone = txt.replace(/\s/g, "");
+    ctx.session.step           = "CARGO_CASH_NBR";
+    return ctx.reply("ሰፈር (ወይም — ዳሽ):", backKb());
+  }
+
+  if (step === "CARGO_CASH_NBR") {
+    ctx.session.cargoCashNbr = txt.slice(0, 60);
+    ctx.session.step         = "CARGO_CASH_DESC";
+    return ctx.reply("ጭነት ዓይነት (ምን ዓይነት እቃ?):", backKb());
+  }
+
+  if (step === "CARGO_CASH_DESC") {
+    if (txt.length < 2 || txt.length > 200) return ctx.reply("ጭነቱን ያስገቡ (2–200 ፊደል):", backKb());
+    ctx.session.cargoCashDesc = txt;
+    ctx.session.step          = "CARGO_CASH_KG";
+    return ctx.reply("ክብደት (ኪሎ):", backKb());
+  }
+
+  if (step === "CARGO_CASH_KG") {
+    const kg = parseFloat(txt.replace(/[^0-9.]/g, ""));
+    if (!kg || kg <= 0 || kg > 2000) return ctx.reply("ትክክለኛ ቁጥር ያስገቡ (1–2000):", backKb());
+    ctx.session.cargoCashKg = kg;
+    ctx.session.step        = "CARGO_CASH_TGID";
+    return ctx.reply(
+      "ደንበኛው Telegram User ID ካለ ያስገቡ (ለማሳወቅ)\n_ከሌለ 0 ይጻፉ:_",
+      { parse_mode: "Markdown", ...backKb() },
+    );
+  }
+
+  if (step === "CARGO_CASH_TGID") {
+    const { cargoCashRouteId, cargoCashName, cargoCashPhone, cargoCashNbr, cargoCashDesc, cargoCashKg } = ctx.session;
+    const ro     = byRoute(cargoCashRouteId);
+    const tgId   = parseInt(txt.replace(/\D/g, ""), 10) || 0;
+    const svcFee = Math.round(cargoCashKg * REG_PER_KG);
+
+    await Reg.create({
+      userId:        tgId,
+      username:      "",
+      fullName:      cargoCashName,
+      phone:         cargoCashPhone,
+      neighborhood:  cargoCashNbr || "",
+      routeId:       cargoCashRouteId,
+      cargoDesc:     cargoCashDesc,
+      weightKg:      cargoCashKg,
+      totalPrice:    svcFee,
+      paymentMethod: "cash",
+      status:        "approved",
+    });
+
+    ctx.session = {};
+
+    await ctx.reply(
+      "✅ *Cash Cargo ምዝገባ ተጠናቀቀ!*\n━━━━━━━━━━━━━━━━\n" +
+      (ro ? ro.emoji + " *" + ro.label + "*\n" : "") +
+      "👤 " + cargoCashName + "  |  📞 " + cargoCashPhone + "\n" +
+      "🏘 ሰፈር: " + (cargoCashNbr || "—") + "\n" +
+      "📦 ጭነት: " + cargoCashDesc + " — " + cargoCashKg + " ኪሎ\n" +
+      "💵 Cash — " + svcFee + " ብር (ፈቃድ ተሰጥቷል)",
+      { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
+    );
+
+    if (tgId) {
+      bot.telegram.sendMessage(
+        tgId,
+        "✅ *ምዝገባ ተጠናቀቀ!*\n" + (ro ? ro.emoji + " *" + ro.label + "*\n" : "") +
+        "📦 " + cargoCashDesc + " — " + cargoCashKg + " ኪሎ\n" +
+        "💵 ክፍያ በ አካል ተቀቢሏል\n📞 " + SUPPORT_PHONE,
+        { parse_mode: "Markdown" },
+      ).catch(() => {});
+    }
+
+    sendPersonalNotification(
+      "🚚 *Cash Cargo ምዝገባ!*\n━━━━━━━━━━━━━━━━\n" +
+      (ro ? ro.emoji + " " + ro.label + "\n" : "") +
+      "👤 *" + cargoCashName + "*  |  📞 " + cargoCashPhone + "\n" +
+      "📦 " + cargoCashDesc + " — " + cargoCashKg + " ኪሎ\n" +
+      "💵 Cash — " + svcFee + " ብር\n" +
+      "⏰ " + new Date().toLocaleString("en-GB")
+    ).catch(() => {});
+
+    await checkCapacity(cargoCashRouteId).catch(() => {});
+    return;
+  }
+
   /* ── Cargo NAME step ─────────────────────────────────── */
   if (step === "NAME") {
     if (txt.length < 3) return ctx.reply("ሙሉ ስም ያስገቡ (3+ ፊደል):", backKb());
@@ -1315,19 +1462,26 @@ bot.on("text", async (ctx, next) => {
     ctx.session.step   = "NEIGHBORHOOD";
     return ctx.reply(
       `👤 ${txt}\n\nሰፈርዎን ያስገቡ:`,
-      { parse_mode: "Markdown", ...backKb() },
+      { parse_mode: "Markdown", ...backToNameKb() },
     );
   }
 
   if (step === "NEIGHBORHOOD") {
-    if (txt.length < 2) return ctx.reply("ሰፈርዎን ያስገቡ:", backKb());
+    if (txt.length < 2) return ctx.reply("ሰፈርዎን ያስገቡ:", backToNameKb());
     ctx.session.d.neighborhood = txt.slice(0, 60);
     ctx.session.step           = "PHONE";
-    return ctx.reply("ስልክ ቁጥርዎን ያስገቡ:", backKb());
+    return ctx.reply("📞 ስልክ ቁጥርዎን ያስገቡ:", backToNbrKb());
   }
 
   /* ── PHONE step ──────────────────────────────────────── */
   if (step === "PHONE") {
+    if (txt === "🔙 ሰፈርዎን ቀይር") {
+      ctx.session.step = "NEIGHBORHOOD";
+      return ctx.reply(
+        `👤 ${ctx.session.d.name}\n\nሰፈርዎን እንደገና ያስገቡ:`,
+        { parse_mode: "Markdown", ...backToNameKb() },
+      );
+    }
     const phone      = txt.replace(/\s/g, "");
     const phoneValid = /^0[79]\d{8}$/.test(phone) || /^\+251[79]\d{8}$/.test(phone);
     if (!phoneValid) {
@@ -1611,7 +1765,8 @@ function adminPanelKb(grpOn) {
     [Markup.button.callback("🖨 ዝርዝር አትም (Print Manifest)",   "print_pick")],
     [Markup.button.callback("📦 የቡድን ግዥ ሁኔታ",                 "gb_status")],
     [Markup.button.callback("➕ GB ኪሎ/ሊትር ጨምር (Admin)",       "admin_gb_addkg")],
-    [Markup.button.callback("💵 Cash ምዝገባ (Admin)",             "admin_cash_reg")],
+    [Markup.button.callback("💵 Cash ምዝገባ — GB (Admin)",          "admin_cash_reg")],
+    [Markup.button.callback("🚚 Cash Cargo ምዝገባ (Admin)",          "admin_cash_cargo")],
     [Markup.button.callback("📣 ቀሪ ኪሎ ለተጠቃሚዎች ላክ",           "gb_broadcast_remain")],
     [Markup.button.callback("📢 GB ቻናል ማስታወቂያ",              "gb_channel_panel")],
     [Markup.button.callback(`${grpIcon} Group ማስታወቂያ`,        "toggle_group_notify")],
@@ -1680,6 +1835,56 @@ bot.action(/^cash_prod_(.+)$/, async (ctx) => {
   ctx.session = { step: "ADMIN_CASH_NAME", cashProductId: prodId };
   await ctx.reply(
     `${prod.emoji} *${prod.label}* — Cash ምዝገባ\n\n👤 ደንበኛው ሙሉ ስም:`,
+    { parse_mode: "Markdown", ...backKb() },
+  );
+});
+
+/* ─── Admin: Cash Cargo Registration ───────────────────────── */
+bot.action("admin_cash_cargo", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  await ctx.reply("*🚚 Cash Cargo — አቅጣጫ ምረጡ:*", {
+    parse_mode: "Markdown",
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback("🔼 አዲስ አበባ → አማራ ክልል", "ccargo_dir_toamhara")],
+      [Markup.button.callback("🔽 አማራ ክልል → አዲስ አበባ", "ccargo_dir_toaa")],
+      [Markup.button.callback("🔙 ተመለስ", "back_to_admin")],
+    ]),
+  });
+});
+
+bot.action("ccargo_dir_toamhara", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  await ctx.reply("*አዲስ አበባ → አማራ ክልል — መስመር ይምረጡ:*", {
+    parse_mode: "Markdown",
+    ...Markup.inlineKeyboard([
+      ...ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(r.emoji + " " + r.label, "ccargo_rt_" + r.id)]),
+      [Markup.button.callback("🔙 ተመለስ", "admin_cash_cargo")],
+    ]),
+  });
+});
+
+bot.action("ccargo_dir_toaa", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  await ctx.reply("*አማራ ክልል → አዲስ አበባ — መስመር ይምረጡ:*", {
+    parse_mode: "Markdown",
+    ...Markup.inlineKeyboard([
+      ...ROUTES_TO_AA.map((r) => [Markup.button.callback(r.emoji + " " + r.label, "ccargo_rt_" + r.id)]),
+      [Markup.button.callback("🔙 ተመለስ", "admin_cash_cargo")],
+    ]),
+  });
+});
+
+bot.action(/^ccargo_rt_(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const ro = byRoute(ctx.match[1]);
+  if (!ro) return ctx.reply("❌ መስመር አልተገኘም");
+  ctx.session = { step: "CARGO_CASH_NAME", cargoCashRouteId: ro.id };
+  await ctx.reply(
+    ro.emoji + " *" + ro.label + "* — Cash Cargo ምዝገባ\n\n👤 ደንበኛው ሙሉ ስም:",
     { parse_mode: "Markdown", ...backKb() },
   );
 });
