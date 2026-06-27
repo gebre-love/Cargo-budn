@@ -1,17 +1,14 @@
 {
-  "name": "cargo-budn-srat",
-  "version": "3.0.0",
-  "description": "ካርጎ ቡድን ሥርዓት — ምዝገባ + AI ክፍያ ማረጋገጫ",
+  "name": "cargo-bot",
+  "version": "1.0.0",
+  "type": "module",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
-    "mongoose": "^8.4.0",
-    "telegraf": "^4.16.3"
+    "telegraf": "^4.16.3",
+    "mongoose": "^8.0.0",
+    "@anthropic-ai/sdk": "^0.24.0"
   }
 }
