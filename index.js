@@ -19,6 +19,8 @@ const CHANNEL_ID = (process.env.CHANNEL_ID || "").trim();
 const GROUP_ID = (process.env.GROUP_ID || "").trim();
 /* ቻናሉ ተጠቃሚዎች ከምዝገባ በኋላ ይጋበዛሉ */
 const MEMBER_CHANNEL = (process.env.MEMBER_CHANNEL || "abrenenguaz").trim();
+/* የግሌ Telegram chat — ምዝገባ ሲጠናቀቅ ወደዚህ ID ራሱ ማሳወቂያ ይሄዳል */
+const PERSONAL_CHAT_ID = Number((process.env.PERSONAL_CHAT_ID || "").trim()) || 0;
 
 let REG_PER_KG = 5;
 let SHIP_PER_KG = 25;
@@ -34,13 +36,14 @@ const anthropic = ANTHROPIC_KEY
 
 /* ─── 2. የቡድን ግዥ ምርቶች ──────────────────────────────────── */
 const GB_PRODUCTS = [
-  { id: "teff",   emoji: "🌾", label: "ጤፍ",    unit: "kg",    targetKg: Number(process.env.GB_TEFF_KG)  || 5000, pricePerKg: Number(process.env.GB_TEFF_PRICE)  || 75  },
-  { id: "oil",    emoji: "🛢",  label: "ዘይት",   unit: "liter", targetKg: Number(process.env.GB_OIL_KG)   || 3000, pricePerKg: Number(process.env.GB_OIL_PRICE)   || 120 },
-  { id: "sugar",  emoji: "🍚", label: "ስኳር",   unit: "kg",    targetKg: Number(process.env.GB_SUGAR_KG) || 3000, pricePerKg: Number(process.env.GB_SUGAR_PRICE) || 55  },
-  { id: "flour",  emoji: "🌽", label: "ዱቄት",   unit: "kg",    targetKg: Number(process.env.GB_FLOUR_KG) || 3000, pricePerKg: Number(process.env.GB_FLOUR_PRICE) || 60  },
-  { id: "onion",  emoji: "🧅", label: "ሽንኩርት", unit: "kg",    targetKg: Number(process.env.GB_ONION_KG) || 2000, pricePerKg: Number(process.env.GB_ONION_PRICE) || 30  },
+  { id: "teff",   emoji: "🌾", label: "ጤፍ",    unit: "kg",    targetKg: Number(process.env.GB_TEFF_KG)   || 5000, pricePerKg: Number(process.env.GB_TEFF_PRICE)   || 75  },
+  { id: "oil",    emoji: "🛢",  label: "ዘይት",   unit: "liter", targetKg: Number(process.env.GB_OIL_KG)    || 3000, pricePerKg: Number(process.env.GB_OIL_PRICE)    || 120 },
+  { id: "sugar",  emoji: "🍚", label: "ስኳር",   unit: "kg",    targetKg: Number(process.env.GB_SUGAR_KG)  || 3000, pricePerKg: Number(process.env.GB_SUGAR_PRICE)  || 55  },
+  { id: "flour",  emoji: "🌽", label: "ዱቄት",   unit: "kg",    targetKg: Number(process.env.GB_FLOUR_KG)  || 3000, pricePerKg: Number(process.env.GB_FLOUR_PRICE)  || 60  },
+  { id: "onion",  emoji: "🧅", label: "ሽንኩርት", unit: "kg",    targetKg: Number(process.env.GB_ONION_KG)  || 2000, pricePerKg: Number(process.env.GB_ONION_PRICE)  || 30  },
+  { id: "potato", emoji: "🥔", label: "ድንች",   unit: "kg",    targetKg: Number(process.env.GB_POTATO_KG) || 2000, pricePerKg: Number(process.env.GB_POTATO_PRICE) || 15  },
 ];
-const byProduct = (id) => GB_PRODUCTS.find((p) => p.id === id);
+const byProduct = (id) => GB_PRODUCTS.find((p) => p.id === id) || EXTRA_PRODUCTS.find((p) => p.id === id);
 const unitLabel = (p) => (p?.unit === "liter" ? "ሊትር" : "ኪሎ");
 
 /* ─── ምናሌ ቁልፎች ────────────────────────────────────────── */
@@ -166,6 +169,38 @@ const BotSettings = mongoose.model(
   }),
 );
 
+/* ─── Dynamic custom products (admin-added) ─────────────────── */
+const CustomProduct = mongoose.model(
+  "CustomProduct",
+  new mongoose.Schema({
+    id:         { type: String, unique: true, required: true },
+    emoji:      { type: String, default: "📦" },
+    label:      { type: String, required: true },
+    unit:       { type: String, default: "kg" },
+    targetKg:   { type: Number, default: 2000 },
+    pricePerKg: { type: Number, default: 0 },
+    enabled:    { type: Boolean, default: true },
+    createdAt:  { type: Date, default: Date.now },
+  }),
+);
+
+/* In-memory cache — refreshed on every menu build */
+let EXTRA_PRODUCTS = [];
+
+async function loadExtraProducts() {
+  try {
+    EXTRA_PRODUCTS = await CustomProduct.find({ enabled: true }).sort({ createdAt: 1 }).lean();
+  } catch { EXTRA_PRODUCTS = []; }
+}
+
+function allProducts() {
+  return [...GB_PRODUCTS, ...EXTRA_PRODUCTS];
+}
+
+function byAnyProduct(id) {
+  return allProducts().find((p) => p.id === id);
+}
+
 async function getSetting(key, defaultVal) {
   const doc = await BotSettings.findOne({ key }).lean();
   return doc ? doc.value : defaultVal;
@@ -183,6 +218,7 @@ async function loadPricesFromDB() {
   if (savedReg  !== null && savedReg  > 0) REG_PER_KG  = savedReg;
   const savedShip = await getSetting("fee_ship_per_kg", null);
   if (savedShip !== null && savedShip > 0) SHIP_PER_KG = savedShip;
+  await loadExtraProducts();
 }
 
 /* ─── 5. SESSION ────────────────────────────────────────── */
@@ -273,6 +309,16 @@ function recordFailedInput(userId) {
 const isAdmin = (ctx) => ADMIN_IDS.includes(ctx.from?.id);
 
 /* ቻናል ጋብዘ — ምዝገባ ከተጠናቀቀ በኋላ ይላካሉ */
+/* ምዝገባ ሲጠናቀቅ ወደ የግሌ Telegram ራሱ ማሳወቂያ */
+async function sendPersonalNotification(msg) {
+  if (!PERSONAL_CHAT_ID) return;
+  try {
+    await bot.telegram.sendMessage(PERSONAL_CHAT_ID, msg, { parse_mode: "Markdown" });
+  } catch (e) {
+    console.error("sendPersonalNotification error:", e.message);
+  }
+}
+
 async function sendChannelInvite(userId, extraNote = "") {
   if (!MEMBER_CHANNEL) return;
   try {
@@ -330,14 +376,19 @@ function capLine(total, target, unit = "ኪሎ") {
 
 /* ─── 8. KEYBOARDS ──────────────────────────────────────── */
 async function mainKb(userId) {
+  await loadExtraProducts();           /* refresh dynamic products */
   const isAdminUser = ADMIN_IDS.includes(userId);
+  const staticProds = GB_PRODUCTS;
+  const extraProds  = EXTRA_PRODUCTS;
+  const allProds    = [...staticProds, ...extraProds];
+
   const [cargoToAmhara, cargoToAA, myRegs, counter, ...productEnabled] =
     await Promise.all([
       getSetting("menu_cargo_toamhara", true),
       getSetting("menu_cargo_toaa",     true),
       getSetting("menu_my_regs",        true),
       getSetting("menu_counter",        true),
-      ...GB_PRODUCTS.map((p) => getSetting(`menu_product_${p.id}`, true)),
+      ...allProds.map((p) => getSetting(`menu_product_${p.id}`, true)),
     ]);
 
   const rows = [];
@@ -351,8 +402,9 @@ async function mainKb(userId) {
   if (isAdminUser || counter)  row2.push("📊 የጭነት ቆጣሪ");
   if (row2.length) rows.push(row2);
 
+  /* Static products */
   const prodRow1 = [], prodRow2 = [];
-  GB_PRODUCTS.forEach((p, i) => {
+  staticProds.forEach((p, i) => {
     if (isAdminUser || productEnabled[i]) {
       const btn = `${p.emoji} ${p.label}`;
       if (i < 3) prodRow1.push(btn); else prodRow2.push(btn);
@@ -360,6 +412,17 @@ async function mainKb(userId) {
   });
   if (prodRow1.length) rows.push(prodRow1);
   if (prodRow2.length) rows.push(prodRow2);
+
+  /* Dynamic (admin-added) products — each on its own row of 2 */
+  const extraOffset = staticProds.length;
+  let extraRow = [];
+  extraProds.forEach((p, i) => {
+    if (isAdminUser || productEnabled[extraOffset + i]) {
+      extraRow.push(`${p.emoji} ${p.label}`);
+      if (extraRow.length === 2) { rows.push(extraRow); extraRow = []; }
+    }
+  });
+  if (extraRow.length) rows.push(extraRow);
 
   if (ADMIN_IDS.length) rows.push(["🔧 Admin"]);
   if (!isAdminUser && rows.length === (ADMIN_IDS.length ? 1 : 0)) return Markup.removeKeyboard();
@@ -877,8 +940,32 @@ bot.on("text", async (ctx, next) => {
     "📋 የምዝገባ ዝርዝሬ", "📊 የጭነት ቆጣሪ", "🔧 Admin",
     "⏭️ ሳላጋራ ጨርስ", "🔼 አዲስ አበባ → አማራ ክልል", "🔽 አማራ ክልል → አዲስ አበባ",
     ...GB_PRODUCTS.map((p) => `${p.emoji} ${p.label}`),
+    ...EXTRA_PRODUCTS.map((p) => `${p.emoji} ${p.label}`),
   ];
-  if (reserved.includes(txt)) return next();
+  if (reserved.includes(txt)) {
+    /* Check if it is a dynamic extra product button */
+    const matchedExtra = EXTRA_PRODUCTS.find((p) => `${p.emoji} ${p.label}` === txt);
+    if (matchedExtra) {
+      if (!isAdmin(ctx) && !(await getSetting(`menu_product_${matchedExtra.id}`, true)))
+        return ctx.reply("ይህ ምርት አሁን አልተከፈተም።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
+      ctx.session = { step: "GB_NAME", gbProductId: matchedExtra.id };
+      const ul = unitLabel(matchedExtra);
+      const agg = await GBReg.aggregate([
+        { $match: { productId: matchedExtra.id } },
+        { $group: { _id: null, kg: { $sum: "$weightKg" }, count: { $sum: 1 } } },
+      ]);
+      const regKg = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
+      return ctx.reply(
+        `${matchedExtra.emoji} *${matchedExtra.label}*\n━━━━━━━━━━━━━━━━\n` +
+        `${capLine(regKg, matchedExtra.targetKg, ul)}\n👥 ${regCount} ሰው ተመዝግቧል\n\n` +
+        `✅ *እርስዎ የሚከፍሉት ትንሽ የ አገልግሎት ክፍያ ብቻ ነው*\n` +
+        `_የምርት እና የትራንስፖርት ክፍያ — ምዝገባ ሲሞላ እናሳውቅዎታለን_\n\n` +
+        `👤 ሙሉ ስምዎን ያስገቡ:`,
+        { parse_mode: "Markdown", ...backKb() },
+      );
+    }
+    return next();
+  }
 
   /* ── admin steps ─────────────────────────────────────── */
   if (step === "ADMIN_WELCOME") {
@@ -1006,6 +1093,17 @@ bot.on("text", async (ctx, next) => {
       sendChannelInvite(tgId).catch(() => {});
     }
 
+    /* የግሌ Telegram ማሳወቂያ — Cash ምዝገባ */
+    sendPersonalNotification(
+      `💵 *Cash GB ምዝገባ ደረሰ!*\n━━━━━━━━━━━━━━━━\n` +
+      `${prod?.emoji} *${prod?.label}* — ${cashKg} ${ul}\n` +
+      `👤 *${cashName}*  |  📞 ${cashPhone}\n` +
+      `🏘 ሰፈር: ${cashNbr || "—"}\n` +
+      `💳 Cash — ${serviceFee} ብር\n` +
+      `✅ Admin ፈቅዷል\n` +
+      `⏰ ${new Date().toLocaleString("en-GB")}`
+    ).catch(() => {});
+
     checkGBCapacity(cashProductId).catch(() => {});
     return;
   }
@@ -1116,6 +1214,79 @@ bot.on("text", async (ctx, next) => {
   }
 
   if (step === "GB_ADDKG_CONFIRM") return ctx.reply("ከዚህ በታች ያሉትን ቁልፎች ይጠቀሙ 👆");
+
+  /* ── Add Product flow (Admin) ───────────────────────────── */
+  if (step === "ADDPROD_EMOJI") {
+    const emoji = txt.trim();
+    if (emoji.length === 0) return ctx.reply("Emoji ያስገቡ:", backKb());
+    ctx.session.newProdEmoji = emoji;
+    ctx.session.step         = "ADDPROD_LABEL";
+    return ctx.reply(
+      `${emoji} ✓\n\nደረጃ 2: *የምርቱን ስም* ያስገቡ (ምሳሌ: ቲማቲም, ቃሪያ, ሽምብራ):`,
+      { parse_mode: "Markdown", ...backKb() },
+    );
+  }
+
+  if (step === "ADDPROD_LABEL") {
+    if (txt.length < 2) return ctx.reply("ስም ያስገቡ (ቢያንስ 2 ፊደል):", backKb());
+    ctx.session.newProdLabel = txt.trim();
+    ctx.session.step         = "ADDPROD_PRICE";
+    return ctx.reply(
+      `ደረጃ 3: *ዋጋ/ኪሎ (ብር)* ያስገቡ\n_ምሳሌ: 45_`,
+      { parse_mode: "Markdown", ...backKb() },
+    );
+  }
+
+  if (step === "ADDPROD_PRICE") {
+    const price = parseFloat(txt.replace(/[^0-9.]/g, ""));
+    if (!price || price <= 0 || price > 100000) return ctx.reply("❌ ትክክለኛ ዋጋ ያስገቡ (ምሳሌ: 45):", backKb());
+    ctx.session.newProdPrice = price;
+    ctx.session.step         = "ADDPROD_TARGET";
+    return ctx.reply(
+      `ደረጃ 4: *ምን ያህል ኪሎ ሲሞላ?* (Target)\n_ምሳሌ: 2000_`,
+      { parse_mode: "Markdown", ...backKb() },
+    );
+  }
+
+  if (step === "ADDPROD_TARGET") {
+    const target = parseFloat(txt.replace(/[^0-9.]/g, ""));
+    if (!target || target <= 0 || target > 1000000) return ctx.reply("❌ ትክክለኛ ቁጥር ያስገቡ:", backKb());
+    const { newProdEmoji, newProdLabel, newProdPrice } = ctx.session;
+    ctx.session = {};
+
+    /* Create unique id from label */
+    const rawId = newProdLabel.replace(/\s+/g, "_").replace(/[^\w\u1200-\u137F]/g, "").toLowerCase() + "_" + Date.now();
+    const prodId = rawId.slice(0, 40);
+
+    await CustomProduct.create({
+      id:         prodId,
+      emoji:      newProdEmoji,
+      label:      newProdLabel,
+      unit:       "kg",
+      targetKg:   target,
+      pricePerKg: newProdPrice,
+      enabled:    true,
+    });
+
+    await loadExtraProducts();
+
+    await ctx.reply(
+      `✅ *ምርት ተጨምሯል!*\n━━━━━━━━━━━━━━━━\n\n` +
+      `${newProdEmoji} *${newProdLabel}*\n` +
+      `💰 ዋጋ: ${newProdPrice} ብር/ኪሎ\n` +
+      `🎯 ኢላማ: ${target.toLocaleString()} ኪሎ\n\n` +
+      `ምርቱ ወዲያው ለተጠቃሚዎች button ሆኖ ይታያል!`,
+      { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
+    );
+    for (const aid of ADMIN_IDS) {
+      if (aid === ctx.from.id) continue;
+      bot.telegram.sendMessage(aid,
+        `➕ *አዲስ ምርት ተጨምሯል!*\n${newProdEmoji} *${newProdLabel}* — ${newProdPrice} ብር/ኪሎ`,
+        { parse_mode: "Markdown" },
+      ).catch(() => {});
+    }
+    return;
+  }
 
   if (step === "ADMIN_PRICE") {
     const price = parseFloat(txt.replace(/[^0-9.]/g, ""));
@@ -1348,6 +1519,18 @@ bot.on("photo", async (ctx) => {
     /* ቻናል ጋብዣ — ክፍያ ሲረጋገጥ ወዲያው ይላካሉ */
     if (autoOk) sendChannelInvite(ctx.from.id).catch(() => {});
 
+    /* የግሌ Telegram ማሳወቂያ — ምዝገባ ሲጠናቀቅ */
+    sendPersonalNotification(
+      `🆕 *GB ምዝገባ ደረሰ!*\n━━━━━━━━━━━━━━━━\n` +
+      `${prod?.emoji} *${prod?.label}* — ${gbKg} ${ul}\n` +
+      `👤 *${gbName}*  |  📞 ${gbPhone}\n` +
+      `🏘 ሰፈር: ${gbNeighborhood || "—"}\n` +
+      `💳 ክፍያ: ${serviceFee} ብር\n` +
+      `✅ ሁኔታ: ${autoOk ? "ራሱ ፈቅዷል" : "ፍተሻ ይጠብቃል"}\n` +
+      `🆔 User: ${ctx.from.id}${ctx.from.username ? " @" + ctx.from.username : ""}\n` +
+      `⏰ ${new Date().toLocaleString("en-GB")}`
+    ).catch(() => {});
+
     /* Admin gets internal detail */
     const gbCaption = `${checkSummaryAdmin(verdict)}\n\nGB: ${prod?.emoji}${prod?.label} — ${gbName} (${gbPhone})\nሰፈር: ${gbNeighborhood || "—"} — ${gbKg}${ul}\nክፍያ: ${serviceFee} ብር${autoOk ? "\n✅ ፍተሻ አልፏል" : ""}`;
     for (const aid of ADMIN_IDS)
@@ -1396,6 +1579,20 @@ bot.on("photo", async (ctx) => {
   /* ቻናል ጋብዣ */
   if (autoOk) sendChannelInvite(ctx.from.id).catch(() => {});
 
+  /* የግሌ Telegram ማሳወቂያ — Cargo ምዝገባ ሲጠናቀቀ */
+  const _ro2 = byRoute(r.routeId);
+  sendPersonalNotification(
+    `🚚 *Cargo ምዝገባ ደረሰ!*\n━━━━━━━━━━━━━━━━\n` +
+    `${_ro2?.emoji} *${_ro2?.label}*\n` +
+    `👤 *${r.fullName}*  |  📞 ${r.phone}\n` +
+    `🏘 ሰፈር: ${r.neighborhood || "—"}\n` +
+    `📦 ጭነት: ${r.cargoDesc} — ${r.weightKg} ኪሎ\n` +
+    `💳 ክፍያ: ${r.totalPrice} ብር\n` +
+    `✅ ሁኔታ: ${autoOk ? "ራሱ ፈቅዷል" : "ፍተሻ ይጠብቃል"}\n` +
+    `🆔 User: ${r.userId}${r.username ? " @" + r.username : ""}\n` +
+    `⏰ ${new Date().toLocaleString("en-GB")}`
+  ).catch(() => {});
+
   ctx.session = { step: "LOC", locRegId: String(r._id), locTries: 0 };
   await ctx.reply("📍 አድራሻዎን ያጋሩ — ቤትዎ ይሰበሰብለዎታል:", locKb());
 
@@ -1431,6 +1628,8 @@ function adminPanelKb(grpOn) {
     [Markup.button.callback("💰 ዋጋ ማሻሻያ",                     "price_panel")],
     [Markup.button.callback("📋 ምናሌ አስተዳዳሪ",                   "menu_manager")],
     [Markup.button.callback("📝 Welcome Message ቀይር",          "welcome_edit")],
+    [Markup.button.callback("➕ አዲስ ምርት ጨምር",                  "add_product")],
+    [Markup.button.callback("🗑 ምርት ሰርዝ",                      "remove_product")],
   ]);
 }
 
@@ -2365,6 +2564,46 @@ bot.command("setfee", async (ctx) => {
     await setSetting("fee_ship_per_kg", price);
     await ctx.reply(`✅ *የትራንስፖርት ክፍያ ተቀይሯል!*\n\nቀድሞ: ${old} ብር/ኪሎ\nአሁን: *${price} ብር/ኪሎ*`, { parse_mode: "Markdown" });
     for (const aid of ADMIN_IDS) { if (aid === ctx.from.id) continue; bot.telegram.sendMessage(aid, `🚚 የትራንስፖርት ክፍያ ተቀይሯል\n${old} → *${price}* ብር/ኪሎ`, { parse_mode: "Markdown" }).catch(() => {}); }
+  }
+});
+
+/* ─── 22b. ADD / REMOVE PRODUCT (Admin) ────────────────────── */
+
+bot.action("add_product", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  ctx.session = { step: "ADDPROD_EMOJI" };
+  await ctx.reply(
+    `*➕ አዲስ ምርት ጨምር*\n━━━━━━━━━━━━━━━━\n\n` +
+    `ደረጃ 1: የምርቱን *emoji* ያስገቡ (ምሳሌ: 🍅 🧄 🫘 🌶 🥦)\n\n_ሞቢልዎ ላይ emoji keyboard ይጠቀሙ:_`,
+    { parse_mode: "Markdown", ...backKb() },
+  );
+});
+
+bot.action("remove_product", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  await loadExtraProducts();
+  if (!EXTRA_PRODUCTS.length) return ctx.reply("የተጨመሩ ምርቶች የሉም።");
+  const buttons = EXTRA_PRODUCTS.map((p) => [
+    Markup.button.callback(`🗑 ${p.emoji} ${p.label}`, `delprod_${p.id}`),
+  ]);
+  buttons.push([Markup.button.callback("🔙 ተመለስ", "back_to_admin")]);
+  await ctx.reply("*ሊሰርዙት የሚፈልጉትን ምርት ይምረጡ:*", { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action(/^delprod_(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const prodId = ctx.match[1];
+  const prod   = await CustomProduct.findOne({ id: prodId });
+  if (!prod) return ctx.reply("❌ ምርት አልተገኘም");
+  await CustomProduct.deleteOne({ id: prodId });
+  await loadExtraProducts();
+  await ctx.reply(`✅ *${prod.emoji} ${prod.label}* — ተሰርዟል!`, { parse_mode: "Markdown" });
+  for (const aid of ADMIN_IDS) {
+    if (aid === ctx.from.id) continue;
+    bot.telegram.sendMessage(aid, `🗑 *${prod.emoji} ${prod.label}* ምርት ተሰርዟል`, { parse_mode: "Markdown" }).catch(() => {});
   }
 });
 
