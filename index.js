@@ -43,7 +43,7 @@ const Reg = mongoose.models.Reg || mongoose.model("Reg", new mongoose.Schema({
   totalPrice:     { type: Number, default: 0 },
   paymentMethod:  { type: String, default: null },
   paymentFileId:  { type: String, default: null },
-  status:         { type: String, default: "pending", enum: ["pending","reviewing","approved","rejected","sent"] },
+  status:         { type: String, default: "pending", enum: ["pending","reviewing","approved"] },
   autoApproved:   { type: Boolean, default: false },
   createdAt:      { type: Date, default: Date.now },
 }));
@@ -186,6 +186,11 @@ function isAdmin(userId) {
 }
 function makeId(label) {
   return label.toLowerCase().replace(/[^a-z0-9\u1200-\u137F]+/g, "_").replace(/^_|_$/g, "").slice(0, 30) + "_" + Date.now();
+}
+function progressBar(cur, target) {
+  const pct = Math.min(100, Math.round((cur / target) * 100));
+  const bar = "█".repeat(Math.floor(pct / 10)) + "░".repeat(10 - Math.floor(pct / 10));
+  return { pct, bar };
 }
 
 /* ─────────────────────────────────────────────────
@@ -599,7 +604,7 @@ bot.action("admin:stats", async ctx => {
     Reg.aggregate([{ $group: { _id: "$status", count: { $sum: 1 } } }]),
     Reg.aggregate([{ $group: { _id: null, kg: { $sum: "$weightKg" } } }]),
   ]);
-  const s = { total: 0, pending: 0, reviewing: 0, approved: 0, rejected: 0, sent: 0 };
+  const s = { total: 0, pending: 0, reviewing: 0, approved: 0 };
   for (const c of counts) {
     if (c._id in s) s[c._id] = c.count;
     s.total += c.count;
@@ -607,7 +612,7 @@ bot.action("admin:stats", async ctx => {
   const [gbTotal, gbPending] = await Promise.all([GBReg.countDocuments(), GBReg.countDocuments({ paymentStatus: "pending" })]);
   await ctx.editMessageText(
     `📊 *Stats*\n\n` +
-    `🚚 *ጭነት:*\n• ጠቅላላ: ${s.total}\n• ⏳ Pending: ${s.pending}\n• 🔍 Reviewing: ${s.reviewing}\n• ✅ Approved: ${s.approved}\n• 🚚 Sent: ${s.sent}\n• ❌ Rejected: ${s.rejected}\n• 📦 ጠቅላላ KG: ${kgAgg[0]?.kg || 0}\n\n` +
+    `🚚 *ጭነት:*\n• ጠቅላላ: ${s.total}\n• ⏳ Pending: ${s.pending}\n• 🔍 Reviewing: ${s.reviewing}\n• ✅ Approved: ${s.approved}\n• 📦 ጠቅላላ KG: ${kgAgg[0]?.kg || 0}\n\n` +
     `🛒 *ቡድን ግዢ:*\n• ጠቅላላ: ${gbTotal}\n• ⏳ Pending: ${gbPending}`,
     { parse_mode: "Markdown", ...Markup.inlineKeyboard([[Markup.button.callback("🔙 ተመለስ", "admin:back")]]) }
   );
@@ -696,7 +701,7 @@ async function handleStep(ctx, text) {
     const id = makeId(sess.data.label);
     await AdminRoute.create({ id, emoji: sess.data.emoji, label: sess.data.label, direction: sess.data.direction, targetKg: kg });
     sess.step = null; sess.data = {};
-    await ctx.reply(`✅ Route ተጨምሯል!\n🛣️ ${sess.data?.label || ""}\n\n/admin ለተጨማሪ`, await mainMenu());
+    await ctx.reply(`✅ Route ተጨምሯል!\n\n/admin ለተጨማሪ`, await mainMenu());
     return;
   }
 
@@ -953,16 +958,34 @@ bot.on("photo", async ctx => {
 });
 
 /* ─────────────────────────────────────────────────
-   CARGO FLOW START
+   CARGO FLOW START  (now shows per-route progress, GB-style)
 ───────────────────────────────────────────────── */
 async function startCargoFlow(ctx, direction) {
   const routes = (await getRoutes()).filter(r => r.direction === direction);
   if (routes.length === 0) return ctx.reply("አሁን ምንም route አልተዘጋጀም።");
+
   ctx.session.step = "cargo_route";
   ctx.session.data = { direction };
-  const btns = routes.map(r => [`${r.emoji} ${r.label}`]);
+
+  let msg = direction === "toAmhara"
+    ? "🔼 *አዲስ አበባ → አማራ ክልል*\n\n"
+    : "🔽 *አማራ ክልል → አዲስ አበባ*\n\n";
+
+  const btns = [];
+  for (const r of routes) {
+    const agg = await Reg.aggregate([
+      { $match: { routeId: r.id } },
+      { $group: { _id: null, kg: { $sum: "$weightKg" } } },
+    ]);
+    const cur = agg[0]?.kg || 0;
+    const { pct, bar } = progressBar(cur, r.targetKg);
+    msg += `${r.emoji} *${r.label}*\n📊 [${bar}] ${pct}%  (${cur.toLocaleString()}/${r.targetKg.toLocaleString()} KG)\n\n`;
+    btns.push([`${r.emoji} ${r.label}`]);
+  }
   btns.push(["❌ ሰርዝ"]);
-  await ctx.reply("📍 *መዳረሻ ከተማ ይምረጡ:*", { parse_mode: "Markdown", ...Markup.keyboard(btns).resize() });
+  msg += "📍 *መዳረሻ ከተማ ይምረጡ:*";
+
+  await ctx.reply(msg, { parse_mode: "Markdown", ...Markup.keyboard(btns).resize() });
 }
 
 /* ─────────────────────────────────────────────────
@@ -974,8 +997,7 @@ async function startGbFlow(ctx, product) {
     { $group: { _id: null, kg: { $sum: "$weightKg" } } },
   ]);
   const cur = agg[0]?.kg || 0;
-  const pct = Math.min(100, Math.round((cur / product.targetKg) * 100));
-  const bar = "█".repeat(Math.floor(pct / 10)) + "░".repeat(10 - Math.floor(pct / 10));
+  const { pct, bar } = progressBar(cur, product.targetKg);
   ctx.session.step = "gb_fullname";
   ctx.session.data = { product };
   await ctx.reply(
@@ -1047,7 +1069,7 @@ async function showMyRegs(ctx) {
     Reg.find({ userId: ctx.from.id }).sort({ createdAt: -1 }).limit(10).lean(),
     GBReg.find({ userId: ctx.from.id }).sort({ createdAt: -1 }).limit(5).lean(),
   ]);
-  const SE = { pending:"⏳", reviewing:"🔍", approved:"✅", rejected:"❌", sent:"🚚" };
+  const SE = { pending:"⏳", reviewing:"🔍", approved:"✅" };
   const GE = { pending:"⏳", reviewing:"🔍", approved:"✅" };
   let msg = "📋 *የምዝገባ ዝርዝሬ*\n\n";
   if (cargo.length) {
@@ -1073,7 +1095,6 @@ async function showMyRegs(ctx) {
 async function showCounter(ctx) {
   const routes = await getRoutes();
   if (!routes.length) return ctx.reply("ምንም route አልተዘጋጀም።");
-  const ACTIVE = ["pending","reviewing","approved"];
   let msg = "📊 *የጭነት ቆጣሪ*\n\n";
   for (const dir of ["toAmhara","toAA"]) {
     const label = dir === "toAmhara" ? "🔼 አዲስ አበባ → አማራ:" : "🔽 አማራ → አዲስ አበባ:";
@@ -1081,10 +1102,9 @@ async function showCounter(ctx) {
     if (!r.length) continue;
     msg += `${label}\n`;
     for (const route of r) {
-      const agg = await Reg.aggregate([{ $match: { routeId: route.id, status: { $in: ACTIVE } } }, { $group: { _id: null, t: { $sum: "$weightKg" } } }]);
+      const agg = await Reg.aggregate([{ $match: { routeId: route.id } }, { $group: { _id: null, t: { $sum: "$weightKg" } } }]);
       const cur = agg[0]?.t || 0;
-      const pct = Math.min(100, Math.round((cur / route.targetKg) * 100));
-      const bar = "█".repeat(Math.floor(pct/10)) + "░".repeat(10 - Math.floor(pct/10));
+      const { pct, bar } = progressBar(cur, route.targetKg);
       msg += `${route.emoji} ${route.label}\n   [${bar}] ${cur.toLocaleString()}/${route.targetKg.toLocaleString()} KG (${pct}%)\n\n`;
     }
   }
