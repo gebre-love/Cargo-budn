@@ -494,6 +494,12 @@ const phoneVerifyKb = (id) =>
     Markup.button.callback("❌ ስልክ ተቀባይነት የለውም", `ph_no_${id}`),
   ]]);
 
+const gbApproveKb = (id) =>
+  Markup.inlineKeyboard([[
+    Markup.button.callback("✅ GB ፈቀድ",  `gbok_${id}`),
+    Markup.button.callback("❌ GB ከልክል", `gbno_${id}`),
+  ]]);
+
 /* ─── 9. CAPACITY TRACKING ──────────────────────────────── */
 async function routeWeight(routeId) {
   const res = await Reg.aggregate([
@@ -732,9 +738,6 @@ function defaultWelcomeText(name) {
     `👋 *እንኳን ወደ Group Buying በደህና መጡ, ${name}!*\n\n` +
     `2️⃣ ምርትን ቀጥታ ከፋብሪካና ከገበሬዎች በማምጣት የኑሮ ውድነቱን ለመጣል ተነስተናል።\n\n` +
     `3️⃣ በጋራ ግዥ (Group Buying) በአንድ ላይ በመሆን ማንኛውንም ዕቃ በጅምላ ዋጋ ከፋብሪካ እና በቀጥታ ከ ገበሬው እንገዛለን።\n\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
-    `✅ *እርስዎ የሚከፍሉት ትንሽ የ አገልግሎት ክፍያ ብቻ ነው!*\n` +
-    `_ሌላው ትራንስፖርት እና የምርት ክፍያ ከፍለው ቀጥታ ከ ምንጩ ባለ ዋጋ ይረካሉ!!_\n\n` +
     `📋 *የምዝገባ (አገልግሎት) ክፍያ:* ${REG_PER_KG} ብር/ኪሎ\n\n` +
     `📞 ለጥያቄ: ${SUPPORT_PHONE}\n\n` +
     `*ከታች የሚፈልጉትን ምርት ይጫኑ:*`
@@ -809,8 +812,7 @@ bot.hears("📋 የምዝገባ ዝርዝሬ", async (ctx) => {
       `ስም: ${g.fullName} | ስልክ: ${g.phone}\n` +
       `ሰፈር: ${g.neighborhood || "—"}\n` +
       `ተመዝግቧል: *${g.weightKg} ${ul}*\n` +
-      `${capLine(regKg, prod?.targetKg || 5000, ul)}\n` +
-      `👥 ተሳታፊ: ${regCount} ሰው`,
+      `ሁኔታ: ${g.paymentStatus === "approved" ? "✅ ተፈቅዷል" : g.paymentStatus === "reviewing" ? "⏳ እየተፈተሸ" : "ክፍያ ይጠብቃል"}`,
       { parse_mode: "Markdown", ...Markup.inlineKeyboard([[
         Markup.button.callback(`➕ ${ul} ጨምር`, `gb_addkg_${g._id}`),
         Markup.button.callback("🗑 ሰርዝ", `delgb_ask_${g._id}`),
@@ -841,18 +843,16 @@ for (const prod of GB_PRODUCTS) {
   bot.hears(`${prod.emoji} ${prod.label}`, async (ctx) => {
     if (!isAdmin(ctx) && !(await getSetting(`menu_product_${prod.id}`, true)))
       return ctx.reply("ይህ ምርት አሁን አልተከፈተም።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
-    ctx.session = { step: "GB_NAME", gbProductId: prod.id };
     const ul = unitLabel(prod);
-    const agg = await GBReg.aggregate([
-      { $match: { productId: prod.id } },
-      { $group: { _id: null, kg: { $sum: "$weightKg" }, count: { $sum: 1 } } },
-    ]);
-    const regKg = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
+    ctx.session = {
+      step: "GB_PHONE",
+      gbProductId: prod.id,
+      gbName: [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || "ደንበኛ",
+      gbNeighborhood: "",
+    };
     await ctx.reply(
       `${prod.emoji} *${prod.label}*\n━━━━━━━━━━━━━━━━\n` +
-      `✅ *እርስዎ የሚከፍሉት ትንሽ የ አገልግሎት ክፍያ ብቻ ነው*\n` +
-      `_የምርት እና የትራንስፖርት ክፍያ — ምዝገባ ሲሞላ እናሳውቅዎታለን_\n\n` +
-      `👤 ሙሉ ስምዎን ያስገቡ:`,
+      `📞 ስልክ ቁጥርዎን ያስገቡ:`,
       { parse_mode: "Markdown", ...backKb() },
     );
   });
@@ -1015,18 +1015,15 @@ bot.on("text", async (ctx, next) => {
     if (matchedExtra) {
       if (!isAdmin(ctx) && !(await getSetting(`menu_product_${matchedExtra.id}`, true)))
         return ctx.reply("ይህ ምርት አሁን አልተከፈተም።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
-      ctx.session = { step: "GB_NAME", gbProductId: matchedExtra.id };
-      const ul = unitLabel(matchedExtra);
-      const agg = await GBReg.aggregate([
-        { $match: { productId: matchedExtra.id } },
-        { $group: { _id: null, kg: { $sum: "$weightKg" }, count: { $sum: 1 } } },
-      ]);
-      const regKg = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
+      ctx.session = {
+        step: "GB_PHONE",
+        gbProductId: matchedExtra.id,
+        gbName: [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || "ደንበኛ",
+        gbNeighborhood: "",
+      };
       return ctx.reply(
         `${matchedExtra.emoji} *${matchedExtra.label}*\n━━━━━━━━━━━━━━━━\n` +
-        `✅ *እርስዎ የሚከፍሉት ትንሽ የ አገልግሎት ክፍያ ብቻ ነው*\n` +
-        `_የምርት እና የትራንስፖርት ክፍያ — ምዝገባ ሲሞላ እናሳውቅዎታለን_\n\n` +
-        `👤 ሙሉ ስምዎን ያስገቡ:`,
+        `📞 ስልክ ቁጥርዎን ያስገቡ:`,
         { parse_mode: "Markdown", ...backKb() },
       );
     }
@@ -1193,25 +1190,17 @@ bot.on("text", async (ctx, next) => {
   }
 
   if (step === "GB_PHONE") {
-    if (txt === "🔙 ሰፈርዎን ቀይር") {
-      ctx.session.step = "GB_NEIGHBORHOOD";
-      return ctx.reply(
-        `👤 ${ctx.session.gbName}\n\nሰፈርዎን እንደገና ያስገቡ:`,
-        { parse_mode: "Markdown", ...backToNameKb() },
-      );
-    }
-    const phone         = txt.replace(/\s/g, "");
-    const phoneValid    = /^0[79]\d{8}$/.test(phone) || /^\+251[79]\d{8}$/.test(phone);
+    const phone      = txt.replace(/\s/g, "");
+    const phoneValid = /^0[79]\d{8}$/.test(phone) || /^\+251[79]\d{8}$/.test(phone);
     if (!phoneValid) {
       const blocked = recordFailedInput(ctx.from?.id);
-      if (blocked) return ctx.reply("⛔ ብዙ ጊዜ ስህተት ግብዓት ልከዋል — ቆይተው ይሞክሩ።");
+      if (blocked) return ctx.reply("⛔ ብዙ ጊዜ ስህተት ልከዋል — ቆይተው ይሞክሩ።");
       ctx.session.gbPhone           = phone;
       ctx.session.gbPhoneUnverified = true;
       ctx.session.step              = "GB_KG";
       const prod = byProduct(ctx.session.gbProductId), ul = unitLabel(prod);
       await ctx.reply(
-        `⚠️ ስልክ ቁጥሩ ቅርጸቱ ልዩ ነው — ሰራተኛ ያረጋግጣሉ.\n\n` +
-        `ምን ያህል *${ul}* *${prod?.label}* ይፈልጋሉ?\nቁጥር ያስገቡ:`,
+        `⚠️ ስልክ ቁጥሩ ቅርጸቱ ልዩ ነው — ሰራተኛ ያረጋግጣሉ.\n\nምን ያህል *${ul}* *${prod?.label}* ይፈልጋሉ?\nቁጥር ያስገቡ:`,
         { parse_mode: "Markdown", ...backKb() },
       );
       return;
@@ -1240,7 +1229,6 @@ bot.on("text", async (ctx, next) => {
       `🏘 ሰፈር: ${ctx.session.gbNeighborhood || "—"}\n\n` +
       `📋 *የምዝገባ (አገልግሎት) ክፍያ:*\n` +
       `   ${kg} ${ul} × ${REG_PER_KG} ብር = *${serviceFee.toLocaleString()} ብር*\n\n` +
-      `ℹ️ _የምርት እና የትራንስፖርት ክፍያ — ምዝገባ ሲሞላ እናሳውቅዎታለን_\n\n` +
       `ምዝገባ ያረጋግጡ?`,
       {
         parse_mode: "Markdown",
@@ -1752,7 +1740,7 @@ bot.on("photo", async (ctx) => {
       totalCost,
       pricePerKg:      prod?.pricePerKg || 0,
       paymentFileId:   fileId,
-      paymentStatus:   autoOk ? "approved" : "reviewing",
+      paymentStatus:   "reviewing",
       aiVerdict:       verdict,
     });
     ctx.session = {};
@@ -1761,16 +1749,9 @@ bot.on("photo", async (ctx) => {
     const regKg    = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
 
     await ctx.reply(
-      autoOk
-        ? `✅ *ክፍያ ተረጋገጠ — ምዝገባ ተጠናቀቀ!*\n━━━━━━━━━━━━━━━━\n` +
-          `${prod?.emoji} *${prod?.label}* — ${gbKg} ${ul}\n` +
-          `👤 ${gbName}  |  📞 ${gbPhone}\n🏘 ሰፈር: ${gbNeighborhood || "—"}\n\n` +
-          `✨ _ምዝገባ ሲሞላ እናሳውቅዎታለን!_\n📞 ${SUPPORT_PHONE}`
-        : `⏳ ፎቶ ደርሷል። ክፍያ ሰራተኛ ያረጋግጣሉ — ምዝገባ ከተረጋገጠ እናሳውቅዎታለን.\n📞 ${SUPPORT_PHONE}`,
+      `⏳ ፎቶ ደርሷል። Admin ያረጋግጣሉ — ምዝገባ ከተፈቀደ እናሳውቅዎታለን.\n📞 ${SUPPORT_PHONE}`,
       { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
     );
-
-    if (autoOk) sendChannelInvite(ctx.from.id).catch(() => {});
 
     sendPersonalNotification(
       `🆕 *GB ምዝገባ ደረሰ!*\n━━━━━━━━━━━━━━━━\n` +
@@ -1783,9 +1764,9 @@ bot.on("photo", async (ctx) => {
       `⏰ ${new Date().toLocaleString("en-GB")}`
     ).catch(() => {});
 
-    const gbCaption = `${checkSummaryAdmin(verdict)}\n\nGB: ${prod?.emoji}${prod?.label} — ${gbName} (${gbPhone})\nሰፈር: ${gbNeighborhood || "—"} — ${gbKg}${ul}\nክፍያ: ${serviceFee} ብር${autoOk ? "\n✅ ፍተሻ አልፏል" : ""}`;
+    const gbCaption = `${checkSummaryAdmin(verdict)}\n\nGB: ${prod?.emoji}${prod?.label} — ${gbName} (${gbPhone})\nሰፈር: ${gbNeighborhood || "—"} — ${gbKg}${ul}\nክፍያ: ${serviceFee} ብር\n⏳ Admin ማረጋገጫ ይጠብቃል`;
     for (const aid of ADMIN_IDS)
-      bot.telegram.sendPhoto(aid, fileId, { caption: gbCaption, parse_mode: "Markdown" }).catch(() => {});
+      bot.telegram.sendPhoto(aid, fileId, { caption: gbCaption, parse_mode: "Markdown", ...gbApproveKb(String(gbReg._id)) }).catch(() => {});
 
     if (gbPhoneUnverified)
       for (const aid of ADMIN_IDS)
@@ -2477,7 +2458,7 @@ bot.action(/^gb_ch_ann_(.+)$/, async (ctx) => {
     const regKg = res[0]?.kg || 0, regCount = res[0]?.count || 0;
     msg += `${prod.emoji} *${prod.label}*\n💰 ${prod.pricePerKg} ብር/${ul}\n📋 አገልግሎት ክፍያ: ${REG_PER_KG} ብር/${ul}\n${capLine(regKg, prod.targetKg, ul)}\n👥 ${regCount} ሰው\n\n`;
   }
-  msg += `✅ *እርስዎ የሚከፍሉት ትንሽ የ አገልግሎት ክፍያ ብቻ ነው!*\n_የምርት እና የትራንስፖርት ክፍያ — ምዝገባ ሲሞላ እናሳውቅዎታለን_\n\nለምዝገባ ቦቱን ይጠቀሙ | ${SUPPORT_PHONE}`;
+  msg += `ለምዝገባ ቦቱን ይጠቀሙ | ${SUPPORT_PHONE}`;
   try {
     await bot.telegram.sendMessage(CHANNEL_ID, msg, { parse_mode: "Markdown" });
     await ctx.reply("✅ ቻናል ማስታወቂያ ተልኳል");
@@ -2549,6 +2530,41 @@ async function setStatus(ctx, id, newStatus, notifyFn) {
   if (notifyFn) bot.telegram.sendMessage(r.userId, notifyFn(r), { parse_mode: "Markdown" }).catch(() => {});
   await checkCapacity(r.routeId);
 }
+
+/* ─── GB APPROVE / REJECT ───────────────────────────────── */
+bot.action(/^gbok_([a-f\d]{24})$/i, async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery("✅ GB ፈቅዷል").catch(() => {});
+  const id = ctx.match[1];
+  if (!isValidObjectId(id)) return;
+  const gbReg = await GBReg.findByIdAndUpdate(id, { paymentStatus: "approved" }, { new: true }).catch(() => null);
+  if (!gbReg) return ctx.reply("GB ምዝገባ አልተገኘም");
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`✅ *GB ፈቅዷል* — ${gbReg.fullName} (${gbReg.phone})`, { parse_mode: "Markdown" });
+  const prod = byProduct(gbReg.productId), ul = unitLabel(prod);
+  bot.telegram.sendMessage(
+    gbReg.userId,
+    `✅ *ምዝገባዎ ተፈቅዷል!*\n\n${prod?.emoji} *${prod?.label}* — ${gbReg.weightKg} ${ul}\n\nምዝገባ ሲሞላ እናሳውቅዎታለን!\n📞 ${SUPPORT_PHONE}`,
+    { parse_mode: "Markdown" },
+  ).catch(() => {});
+  sendChannelInvite(gbReg.userId).catch(() => {});
+  checkGBCapacity(gbReg.productId).catch(() => {});
+});
+
+bot.action(/^gbno_([a-f\d]{24})$/i, async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery("❌ GB ከልክሏል").catch(() => {});
+  const id = ctx.match[1];
+  if (!isValidObjectId(id)) return;
+  const gbReg = await GBReg.findByIdAndDelete(id).catch(() => null);
+  if (!gbReg) return ctx.reply("GB ምዝገባ አልተገኘም");
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply(`❌ *GB ከልክሏል* — ${gbReg.fullName} (${gbReg.phone})`, { parse_mode: "Markdown" });
+  bot.telegram.sendMessage(
+    gbReg.userId,
+    `❌ ክፍያዎ አልተቀበለም — እባክዎ ትክክለኛ screenshot ወይም ትክክለኛ ቁጥር ይጠቀሙ.\n📞 ${SUPPORT_PHONE}`,
+  ).catch(() => {});
+});
 
 bot.action(/^ok_([a-f\d]{24})$/i, async (ctx) => {
   if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
