@@ -172,6 +172,21 @@ const GBProductCap = mongoose.model(
   }),
 );
 
+/* ─── Per-Neighborhood GB Target ────────────────────────────── */
+const GBNeighborhoodTarget = mongoose.model(
+  "GBNeighborhoodTarget",
+  new mongoose.Schema({
+    productId:    { type: String, required: true },
+    neighborhood: { type: String, required: true },   /* canonical (trimmed) */
+    targetKg:     { type: Number, default: 500 },
+  }).index({ productId: 1, neighborhood: 1 }, { unique: true }),
+);
+
+/* Normalize neighborhood strings consistently across all reads/writes */
+function canonicalNbr(s) {
+  return typeof s === "string" ? s.trim() : s;
+}
+
 const BotSettings = mongoose.model(
   "BotSettings",
   new mongoose.Schema({
@@ -500,6 +515,43 @@ const gbApproveKb = (id) =>
     Markup.button.callback("❌ GB ከልክል", `gbno_${id}`),
   ]]);
 
+/* ─── Neighborhood GB Stats ─────────────────────────────── */
+async function getNeighborhoodStats(productId, neighborhood) {
+  if (!neighborhood) return null;
+  const nbr = canonicalNbr(neighborhood);
+  /* Exact-match aggregation — no regex to avoid metacharacter issues */
+  const agg = await GBReg.aggregate([
+    { $match: { productId, neighborhood: nbr } },
+    { $group: { _id: null, kg: { $sum: "$weightKg" }, count: { $sum: 1 } } },
+  ]);
+  const totalKg = agg[0]?.kg || 0;
+  const count   = agg[0]?.count || 0;
+  let tgtDoc = await GBNeighborhoodTarget.findOne({ productId, neighborhood: nbr }).lean();
+  if (!tgtDoc) {
+    const prod = byAnyProduct(productId);
+    const defaultTarget = Math.round((prod?.targetKg || 5000) / 5);
+    tgtDoc = await GBNeighborhoodTarget.findOneAndUpdate(
+      { productId, neighborhood: nbr },
+      { $setOnInsert: { targetKg: defaultTarget } },
+      { upsert: true, new: true },
+    );
+  }
+  return { totalKg, count, targetKg: tgtDoc.targetKg };
+}
+
+function neighborhoodCapLine(totalKg, targetKg, unit = "ኪሎ") {
+  const pct    = Math.max(0, Math.min(100, Math.round((totalKg / targetKg) * 100)));
+  const filled = Math.round(pct / 10);
+  const remain = Math.max(0, targetKg - totalKg);
+  return (
+    "🏘 *የሰፈር ሁኔታ*\n" +
+    "█".repeat(filled) + "░".repeat(10 - filled) + " " + pct + "%\n" +
+    "የሰፈሩ ምዝገባ: " + totalKg + " " + unit +
+    " | ቀሪ: " + remain + " " + unit +
+    " | ኢላማ: " + targetKg + " " + unit
+  );
+}
+
 /* ─── 9. CAPACITY TRACKING ──────────────────────────────── */
 async function routeWeight(routeId) {
   const res = await Reg.aggregate([
@@ -801,18 +853,33 @@ bot.hears("📋 የምዝገባ ዝርዝሬ", async (ctx) => {
   }
 
   for (const g of gbRegs) {
-    const prod = byProduct(g.productId), ul = unitLabel(prod);
+    const prod = byAnyProduct(g.productId), ul = unitLabel(prod);
     const agg  = await GBReg.aggregate([
       { $match: { productId: g.productId } },
       { $group: { _id: null, kg: { $sum: "$weightKg" }, count: { $sum: 1 } } },
     ]);
     const regKg = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
+
+    /* Neighborhood progress */
+    let nbrLine = "";
+    if (g.neighborhood) {
+      const nbrStats = await getNeighborhoodStats(g.productId, g.neighborhood);
+      if (nbrStats) {
+        const pct    = Math.max(0, Math.min(100, Math.round((nbrStats.totalKg / nbrStats.targetKg) * 100)));
+        const filled = Math.round(pct / 10);
+        nbrLine = `\n\n🏘 *${g.neighborhood}* — ${nbrStats.count} ሰው\n` +
+                  "█".repeat(filled) + "░".repeat(10 - filled) + " " + pct + "%\n" +
+                  `${nbrStats.totalKg}/${nbrStats.targetKg} ${ul}`;
+      }
+    }
+
     await ctx.reply(
       `${prod?.emoji} *${prod?.label}*\n` +
       `ስም: ${g.fullName} | ስልክ: ${g.phone}\n` +
       `ሰፈር: ${g.neighborhood || "—"}\n` +
       `ተመዝግቧል: *${g.weightKg} ${ul}*\n` +
-      `ሁኔታ: ${g.paymentStatus === "approved" ? "✅ ተፈቅዷል" : g.paymentStatus === "reviewing" ? "⏳ እየተፈተሸ" : "ክፍያ ይጠብቃል"}`,
+      `ሁኔታ: ${g.paymentStatus === "approved" ? "✅ ተፈቅዷል" : g.paymentStatus === "reviewing" ? "⏳ እየተፈተሸ" : "ክፍያ ይጠብቃል"}` +
+      nbrLine,
       { parse_mode: "Markdown", ...Markup.inlineKeyboard([[
         Markup.button.callback(`➕ ${ul} ጨምር`, `gb_addkg_${g._id}`),
         Markup.button.callback("🗑 ሰርዝ", `delgb_ask_${g._id}`),
@@ -843,16 +910,13 @@ for (const prod of GB_PRODUCTS) {
   bot.hears(`${prod.emoji} ${prod.label}`, async (ctx) => {
     if (!isAdmin(ctx) && !(await getSetting(`menu_product_${prod.id}`, true)))
       return ctx.reply("ይህ ምርት አሁን አልተከፈተም።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
-    const ul = unitLabel(prod);
     ctx.session = {
-      step: "GB_PHONE",
+      step: "GB_NAME",
       gbProductId: prod.id,
-      gbName: [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || "ደንበኛ",
-      gbNeighborhood: "",
     };
     await ctx.reply(
       `${prod.emoji} *${prod.label}*\n━━━━━━━━━━━━━━━━\n` +
-      `📞 ስልክ ቁጥርዎን ያስገቡ:`,
+      `👤 ሙሉ ስምዎን ያስገቡ (ለምሳሌ: አበበ ከበደ):`,
       { parse_mode: "Markdown", ...backKb() },
     );
   });
@@ -1016,14 +1080,12 @@ bot.on("text", async (ctx, next) => {
       if (!isAdmin(ctx) && !(await getSetting(`menu_product_${matchedExtra.id}`, true)))
         return ctx.reply("ይህ ምርት አሁን አልተከፈተም።\nለጥያቄ: " + SUPPORT_PHONE, await mainKb(ctx.from?.id));
       ctx.session = {
-        step: "GB_PHONE",
+        step: "GB_NAME",
         gbProductId: matchedExtra.id,
-        gbName: [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") || "ደንበኛ",
-        gbNeighborhood: "",
       };
       return ctx.reply(
         `${matchedExtra.emoji} *${matchedExtra.label}*\n━━━━━━━━━━━━━━━━\n` +
-        `📞 ስልክ ቁጥርዎን ያስገቡ:`,
+        `👤 ሙሉ ስምዎን ያስገቡ (ለምሳሌ: አበበ ከበደ):`,
         { parse_mode: "Markdown", ...backKb() },
       );
     }
@@ -1037,6 +1099,31 @@ bot.on("text", async (ctx, next) => {
     await ctx.reply("✅ *Welcome Message ተቀይሯል!*", { parse_mode: "Markdown" });
     const preview = await welcomeText(ctx.from?.first_name || "እንኳን ደህና መጡ");
     await ctx.reply(`*👁 ቅድመ-እይታ:*\n\n${preview}`, { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) });
+    return;
+  }
+
+  /* ── Admin: Set Neighborhood Target ──────────────────────── */
+  if (step === "ADMIN_NBR_TARGET") {
+    const { adminNbrProdId } = ctx.session;
+    const prod = byAnyProduct(adminNbrProdId);
+    if (!prod) { ctx.session = {}; return ctx.reply("❌ ምርት አልተገኘም"); }
+    const ul = unitLabel(prod);
+    /* Parse format "ሰፈርስም:TargetNumber" */
+    const colonIdx = txt.lastIndexOf(":");
+    if (colonIdx === -1) return ctx.reply(`❌ Format ስህተት። ሰፈርስም:Target ይጻፉ\nምሳሌ: ቦሌ:800`, backKb());
+    const nbrName  = canonicalNbr(txt.slice(0, colonIdx));
+    const targetKg = parseInt(txt.slice(colonIdx + 1).trim().replace(/[^0-9]/g, ""), 10);
+    if (!nbrName || !targetKg || targetKg < 10) return ctx.reply(`❌ ትክክለኛ format ያስገቡ\nምሳሌ: ቦሌ:800`, backKb());
+    await GBNeighborhoodTarget.findOneAndUpdate(
+      { productId: adminNbrProdId, neighborhood: nbrName },
+      { $set: { targetKg } },
+      { upsert: true },
+    );
+    ctx.session = {};
+    await ctx.reply(
+      `✅ *የሰፈር Target ተቀምጧል!*\n━━━━━━━━━━━━━━━━\n\n🏘 *${nbrName}*\n${prod.emoji} *${prod.label}*\nTarget: *${targetKg} ${ul}*`,
+      { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
+    );
     return;
   }
 
@@ -1184,7 +1271,7 @@ bot.on("text", async (ctx, next) => {
 
   if (step === "GB_NEIGHBORHOOD") {
     if (txt.length < 2) return ctx.reply("ሰፈርዎን ያስገቡ:", backToNameKb());
-    ctx.session.gbNeighborhood = txt.slice(0, 60);
+    ctx.session.gbNeighborhood = canonicalNbr(txt.slice(0, 60));
     ctx.session.step           = "GB_PHONE";
     return ctx.reply("📞 ስልክ ቁጥርዎን ያስገቡ:", backToNbrKb());
   }
@@ -1748,8 +1835,18 @@ bot.on("photo", async (ctx) => {
     const agg      = await GBReg.aggregate([{ $match: { productId: gbProductId } }, { $group: { _id: null, kg: { $sum: "$weightKg" }, count: { $sum: 1 } } }]);
     const regKg    = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
 
+    /* ── Per-neighborhood progress ── */
+    let nbrMsg = "";
+    if (gbNeighborhood) {
+      const nbrStats = await getNeighborhoodStats(gbProductId, gbNeighborhood);
+      if (nbrStats) {
+        nbrMsg = "\n\n" + neighborhoodCapLine(nbrStats.totalKg, nbrStats.targetKg, ul) +
+                 "\n👥 " + nbrStats.count + " ሰው (ሰፈርዎ)";
+      }
+    }
+
     await ctx.reply(
-      `⏳ ፎቶ ደርሷል። Admin ያረጋግጣሉ — ምዝገባ ከተፈቀደ እናሳውቅዎታለን.\n📞 ${SUPPORT_PHONE}`,
+      `⏳ ፎቶ ደርሷል። Admin ያረጋግጣሉ — ምዝገባ ከተፈቀደ እናሳውቅዎታለን.\n📞 ${SUPPORT_PHONE}` + nbrMsg,
       { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
     );
 
@@ -1935,6 +2032,7 @@ function adminPanelKb(grpOn) {
     [Markup.button.callback("🗑 ምርት ሰርዝ",                      "remove_product")],
     [Markup.button.callback("🛤 አዲስ መስመር ጨምር",                 "add_route")],
     [Markup.button.callback("🎯 Target ቀይር (Route / GB)",      "target_change")],
+    [Markup.button.callback("🏘 የሰፈር GB Target ቀይር",           "nbr_target_panel")],
     [Markup.button.callback("⚡ Super Button — ሁሉም ቀይር",       "super_btn")],
   ]);
 }
@@ -3136,6 +3234,49 @@ bot.action(/^delprod_(.+)$/, async (ctx) => {
     if (aid === ctx.from.id) continue;
     bot.telegram.sendMessage(aid, `🗑 *${prod.emoji} ${prod.label}* ምርት ተሰርዟል`, { parse_mode: "Markdown" }).catch(() => {});
   }
+});
+
+/* ─── 22b2. NEIGHBORHOOD GB TARGET (Admin) ──────────────── */
+bot.action("nbr_target_panel", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const buttons = GB_PRODUCTS.map((p) => {
+    const ul = unitLabel(p);
+    return [Markup.button.callback(`${p.emoji} ${p.label} (${ul})`, `nbrt_prod_${p.id}`)];
+  });
+  buttons.push([Markup.button.callback("🔙 ተመለስ", "back_to_admin")]);
+  await ctx.reply(
+    `*🏘 የሰፈር GB Target ቀይር*\n━━━━━━━━━━━━━━━━\n\nምርት ምረጡ:`,
+    { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) },
+  );
+});
+
+bot.action(/^nbrt_prod_(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const prodId = ctx.match[1];
+  const prod   = byAnyProduct(prodId);
+  if (!prod) return ctx.reply("❌ ምርት አልተገኘም");
+  /* Show existing neighborhood targets */
+  const existing = await GBNeighborhoodTarget.find({ productId: prodId }).lean();
+  const ul = unitLabel(prod);
+  let msg = `${prod.emoji} *${prod.label}* — የሰፈር Targets\n━━━━━━━━━━━━━━━━\n\n`;
+  if (existing.length) {
+    for (const e of existing) {
+      const agg = await GBReg.aggregate([
+        { $match: { productId: prodId, neighborhood: e.neighborhood } },
+        { $group: { _id: null, kg: { $sum: "$weightKg" }, count: { $sum: 1 } } },
+      ]);
+      const kg = agg[0]?.kg || 0, cnt = agg[0]?.count || 0;
+      const pct = Math.round((kg / e.targetKg) * 100);
+      msg += `🏘 *${e.neighborhood}*\n${kg}/${e.targetKg} ${ul} (${pct}%) — ${cnt} ሰው\n\n`;
+    }
+  } else {
+    msg += "_ምንም ሰፈር Target አልተቀመጠም — ሰዎች ሲመዘገቡ አዲስ ሰፈሮች ይታከላሉ_\n\n";
+  }
+  msg += `አዲስ/ያለ ሰፈር Target ለማቀናጀት:\nformat: \`ሰፈርስም:Target\`\nምሳሌ: \`ቦሌ:800\``;
+  ctx.session = { step: "ADMIN_NBR_TARGET", adminNbrProdId: prodId };
+  await ctx.reply(msg, { parse_mode: "Markdown", ...backKb() });
 });
 
 /* ─── 22c. TARGET CHANGE (Admin) ────────────────────────── */
