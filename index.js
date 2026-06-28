@@ -224,11 +224,19 @@ async function loadPricesFromDB() {
   for (const prod of GB_PRODUCTS) {
     const saved = await getSetting(`price_${prod.id}`, null);
     if (saved !== null && saved > 0) prod.pricePerKg = saved;
+    const savedTarget = await getSetting(`target_prod_${prod.id}`, null);
+    if (savedTarget !== null && savedTarget > 0) prod.targetKg = savedTarget;
   }
   const savedReg  = await getSetting("fee_reg_per_kg",  null);
   if (savedReg  !== null && savedReg  > 0) REG_PER_KG  = savedReg;
   const savedShip = await getSetting("fee_ship_per_kg", null);
   if (savedShip !== null && savedShip > 0) SHIP_PER_KG = savedShip;
+  /* load saved route targets */
+  const allRoutes = [...ROUTES_TO_AMHARA, ...ROUTES_TO_AA];
+  for (const ro of allRoutes) {
+    const savedTgt = await getSetting(`target_route_${ro.id}`, null);
+    if (savedTgt !== null && savedTgt > 0) ro.targetKg = savedTgt;
+  }
   await loadExtraProducts();
 }
 
@@ -783,7 +791,7 @@ bot.hears("📋 የምዝገባ ዝርዝሬ", async (ctx) => {
     return ctx.reply("ምዝገባ አልተገኘም", await mainKb(ctx.from?.id));
 
   for (const r of regs) {
-    const btns = [Markup.button.callback("ሰርዝ", `del_${r._id}`)];
+    const btns = [Markup.button.callback("🗑 ሰርዝ", `del_ask_${r._id}`)];
     if (!r.locationLat && ACTIVE.includes(r.status))
       btns.push(Markup.button.callback("አድራሻ ላክ", `addloc_${r._id}`));
     await ctx.reply(card(r), { parse_mode: "Markdown", ...Markup.inlineKeyboard([btns]) });
@@ -803,7 +811,10 @@ bot.hears("📋 የምዝገባ ዝርዝሬ", async (ctx) => {
       `ተመዝግቧል: *${g.weightKg} ${ul}*\n` +
       `${capLine(regKg, prod?.targetKg || 5000, ul)}\n` +
       `👥 ተሳታፊ: ${regCount} ሰው`,
-      { parse_mode: "Markdown", ...Markup.inlineKeyboard([[Markup.button.callback(`➕ ${ul} ጨምር`, `gb_addkg_${g._id}`)]]) },
+      { parse_mode: "Markdown", ...Markup.inlineKeyboard([[
+        Markup.button.callback(`➕ ${ul} ጨምር`, `gb_addkg_${g._id}`),
+        Markup.button.callback("🗑 ሰርዝ", `delgb_ask_${g._id}`),
+      ]]) },
     );
   }
 });
@@ -839,7 +850,6 @@ for (const prod of GB_PRODUCTS) {
     const regKg = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
     await ctx.reply(
       `${prod.emoji} *${prod.label}*\n━━━━━━━━━━━━━━━━\n` +
-      `${capLine(regKg, prod.targetKg, ul)}\n👥 ${regCount} ሰው ተመዝግቧል\n\n` +
       `✅ *እርስዎ የሚከፍሉት ትንሽ የ አገልግሎት ክፍያ ብቻ ነው*\n` +
       `_የምርት እና የትራንስፖርት ክፍያ — ምዝገባ ሲሞላ እናሳውቅዎታለን_\n\n` +
       `👤 ሙሉ ስምዎን ያስገቡ:`,
@@ -1014,7 +1024,6 @@ bot.on("text", async (ctx, next) => {
       const regKg = agg[0]?.kg || 0, regCount = agg[0]?.count || 0;
       return ctx.reply(
         `${matchedExtra.emoji} *${matchedExtra.label}*\n━━━━━━━━━━━━━━━━\n` +
-        `${capLine(regKg, matchedExtra.targetKg, ul)}\n👥 ${regCount} ሰው ተመዝግቧል\n\n` +
         `✅ *እርስዎ የሚከፍሉት ትንሽ የ አገልግሎት ክፍያ ብቻ ነው*\n` +
         `_የምርት እና የትራንስፖርት ክፍያ — ምዝገባ ሲሞላ እናሳውቅዎታለን_\n\n` +
         `👤 ሙሉ ስምዎን ያስገቡ:`,
@@ -1412,6 +1421,50 @@ bot.on("text", async (ctx, next) => {
     return;
   }
 
+  /* ── Admin: Set Target ─────────────────────────────────── */
+  if (step === "SET_TARGET_ROUTE") {
+    const kg = parseInt(txt.replace(/[^0-9]/g, ""), 10);
+    if (!kg || kg < 100) return ctx.reply("ትክክለኛ ቁጥር ያስገቡ (ቢያንስ 100 ኪሎ):", backKb());
+    const { targetRouteId } = ctx.session;
+    const ro = byRoute(targetRouteId);
+    if (!ro) { ctx.session = {}; return ctx.reply("Route አልተገኘም"); }
+    const old = ro.targetKg;
+    ro.targetKg = kg;
+    await setSetting(`target_route_${targetRouteId}`, kg);
+    ctx.session = {};
+    await ctx.reply(
+      `✅ *Target ተቀይሯል!*\n\n${ro.emoji} *${ro.label}*\nቀድሞ: ${old} ኪሎ\nአሁን: *${kg} ኪሎ*`,
+      { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
+    );
+    for (const aid of ADMIN_IDS) {
+      if (aid === ctx.from.id) continue;
+      bot.telegram.sendMessage(aid, `🎯 *${ro.label}* Target ተቀይሯል\n${old} → *${kg}* ኪሎ`, { parse_mode: "Markdown" }).catch(() => {});
+    }
+    return;
+  }
+
+  if (step === "SET_TARGET_PROD") {
+    const kg = parseInt(txt.replace(/[^0-9]/g, ""), 10);
+    if (!kg || kg < 10) return ctx.reply("ትክክለኛ ቁጥር ያስገቡ (ቢያንስ 10):", backKb());
+    const { targetProdId } = ctx.session;
+    const prod = byProduct(targetProdId);
+    if (!prod) { ctx.session = {}; return ctx.reply("ምርት አልተገኘም"); }
+    const ul  = unitLabel(prod);
+    const old = prod.targetKg;
+    prod.targetKg = kg;
+    await setSetting(`target_prod_${targetProdId}`, kg);
+    ctx.session = {};
+    await ctx.reply(
+      `✅ *Target ተቀይሯል!*\n\n${prod.emoji} *${prod.label}*\nቀድሞ: ${old} ${ul}\nአሁን: *${kg} ${ul}*`,
+      { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
+    );
+    for (const aid of ADMIN_IDS) {
+      if (aid === ctx.from.id) continue;
+      bot.telegram.sendMessage(aid, `🎯 *${prod.emoji} ${prod.label}* Target ተቀይሯል\n${old} → *${kg}* ${ul}`, { parse_mode: "Markdown" }).catch(() => {});
+    }
+    return;
+  }
+
   /* ── Admin Cash Cargo flow ──────────────────────────────── */
   if (step === "CARGO_CASH_NAME") {
     if (txt.length < 3) return ctx.reply("ሙሉ ስም ያስገቡ (3+ ፊደል):", backKb());
@@ -1712,8 +1765,6 @@ bot.on("photo", async (ctx) => {
         ? `✅ *ክፍያ ተረጋገጠ — ምዝገባ ተጠናቀቀ!*\n━━━━━━━━━━━━━━━━\n` +
           `${prod?.emoji} *${prod?.label}* — ${gbKg} ${ul}\n` +
           `👤 ${gbName}  |  📞 ${gbPhone}\n🏘 ሰፈር: ${gbNeighborhood || "—"}\n\n` +
-          `${capLine(regKg, prod?.targetKg || 5000, ul)}\n` +
-          `👥 ተሳታፊ: ${regCount} ሰው\n\n` +
           `✨ _ምዝገባ ሲሞላ እናሳውቅዎታለን!_\n📞 ${SUPPORT_PHONE}`
         : `⏳ ፎቶ ደርሷል። ክፍያ ሰራተኛ ያረጋግጣሉ — ምዝገባ ከተረጋገጠ እናሳውቅዎታለን.\n📞 ${SUPPORT_PHONE}`,
       { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) },
@@ -1902,6 +1953,7 @@ function adminPanelKb(grpOn) {
     [Markup.button.callback("➕ አዲስ ምርት ጨምር",                  "add_product")],
     [Markup.button.callback("🗑 ምርት ሰርዝ",                      "remove_product")],
     [Markup.button.callback("🛤 አዲስ መስመር ጨምር",                 "add_route")],
+    [Markup.button.callback("🎯 Target ቀይር (Route / GB)",      "target_change")],
     [Markup.button.callback("⚡ Super Button — ሁሉም ቀይር",       "super_btn")],
   ]);
 }
@@ -2517,6 +2569,33 @@ bot.action(/^no_([a-f\d]{24})$/i, async (ctx) => {
   await setStatus(ctx, id, "rejected", () => `ክፍያ አልተቀበለም.\n${SUPPORT_PHONE}`);
 });
 
+/* ── Cargo delete: ask confirmation ─────────────────────── */
+bot.action(/^del_ask_([a-f\d]{24})$/i, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const id = ctx.match[1];
+  if (!isValidObjectId(id)) return;
+  const r = await Reg.findById(id).lean();
+  if (!r) return;
+  if (r.userId !== ctx.from?.id && !isAdmin(ctx)) return;
+  if (r.status === "sent") return ctx.answerCbQuery("ጭነቱ ተልኳል — መሰረዝ አይቻልም", true).catch(() => {});
+  await ctx.reply(
+    `⚠️ *ምዝገባ ሊሰርዙ ይፈልጋሉ?*\n\n${card(r)}\n\nይህ ድርጊት ሊቀለበስ አይችልም!`,
+    {
+      parse_mode: "Markdown",
+      reply_markup: { inline_keyboard: [[
+        { text: "✅ አዎ፣ ሰርዝ",  callback_data: `del_${id}` },
+        { text: "❌ አይ፣ ተው",   callback_data: "del_cancel" },
+      ]]},
+    },
+  );
+});
+
+bot.action("del_cancel", async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply("ምዝገባ አልተሰረዘም ✅");
+});
+
 bot.action(/^del_([a-f\d]{24})$/i, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const id = ctx.match[1];
@@ -2529,7 +2608,43 @@ bot.action(/^del_([a-f\d]{24})$/i, async (ctx) => {
   await r.deleteOne();
   await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
   await checkCapacity(routeId);
-  await ctx.reply("ምዝገባ ተሰርዟል. ለመመዝገብ አቅጣጫ ይምረጡ", await mainKb(ctx.from?.id));
+  await ctx.reply("🗑 ምዝገባ ተሰርዟል.", await mainKb(ctx.from?.id));
+});
+
+/* ── GB delete: ask confirmation then confirm ───────────── */
+bot.action(/^delgb_ask_([a-f\d]{24})$/i, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const id = ctx.match[1];
+  if (!isValidObjectId(id)) return;
+  const g = await GBReg.findById(id).lean();
+  if (!g) return;
+  if (g.userId !== ctx.from?.id && !isAdmin(ctx)) return;
+  const prod = byProduct(g.productId), ul = unitLabel(prod);
+  await ctx.reply(
+    `⚠️ *ምዝገባ ሊሰርዙ ይፈልጋሉ?*\n\n` +
+    `${prod?.emoji} *${prod?.label}* — ${g.weightKg} ${ul}\n` +
+    `👤 ${g.fullName}  |  📞 ${g.phone}\n\n` +
+    `ይህ ድርጊት ሊቀለበስ አይችልም!`,
+    {
+      parse_mode: "Markdown",
+      reply_markup: { inline_keyboard: [[
+        { text: "✅ አዎ፣ ሰርዝ", callback_data: `delgb_${id}` },
+        { text: "❌ አይ፣ ተው",  callback_data: "del_cancel"  },
+      ]]},
+    },
+  );
+});
+
+bot.action(/^delgb_([a-f\d]{24})$/i, async (ctx) => {
+  await ctx.answerCbQuery().catch(() => {});
+  const id = ctx.match[1];
+  if (!isValidObjectId(id)) return;
+  const g = await GBReg.findById(id);
+  if (!g) return;
+  if (g.userId !== ctx.from?.id && !isAdmin(ctx)) return;
+  await g.deleteOne();
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+  await ctx.reply("🗑 የ GB ምዝገባ ተሰርዟል.", await mainKb(ctx.from?.id));
 });
 
 /* ── Send shipment ──────────────────────────────────────── */
@@ -3005,6 +3120,89 @@ bot.action(/^delprod_(.+)$/, async (ctx) => {
     if (aid === ctx.from.id) continue;
     bot.telegram.sendMessage(aid, `🗑 *${prod.emoji} ${prod.label}* ምርት ተሰርዟል`, { parse_mode: "Markdown" }).catch(() => {});
   }
+});
+
+/* ─── 22c. TARGET CHANGE (Admin) ────────────────────────── */
+bot.action("target_change", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const routeBtns = [
+    ...ROUTES_TO_AMHARA.map((r) => [Markup.button.callback(`${r.emoji} ${r.label}`, `tgt_route_${r.id}`)]),
+    ...ROUTES_TO_AA.map((r)     => [Markup.button.callback(`${r.emoji} ${r.label}`, `tgt_route_${r.id}`)]),
+  ];
+  const prodBtns = GB_PRODUCTS.map((p) => [
+    Markup.button.callback(`${p.emoji} ${p.label} (${p.targetKg})`, `tgt_prod_${p.id}`),
+  ]);
+  await ctx.reply(
+    `*🎯 Target ቀይር*\n━━━━━━━━━━━━━━━━\n\nምን Target ሊቀይሩ ይፈልጋሉ?`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback("🚚 Cargo Routes Target", "tgt_type_route")],
+        [Markup.button.callback("📦 GB Products Target",  "tgt_type_prod")],
+        [Markup.button.callback("🔙 ተመለስ", "back_to_admin")],
+      ]),
+    },
+  );
+});
+
+bot.action("tgt_type_route", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const allRoutes = [...ROUTES_TO_AMHARA, ...ROUTES_TO_AA];
+  await ctx.reply(
+    `🚚 *Cargo Route Target ቀይር*\n━━━━━━━━━━━━━━━━\nመስመር ምረጡ:`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        ...allRoutes.map((r) => [Markup.button.callback(`${r.emoji} ${r.label} — ${r.targetKg} ኪሎ`, `tgt_route_${r.id}`)]),
+        [Markup.button.callback("🔙 ተመለስ", "target_change")],
+      ]),
+    },
+  );
+});
+
+bot.action("tgt_type_prod", async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  await ctx.reply(
+    `📦 *GB Product Target ቀይር*\n━━━━━━━━━━━━━━━━\nምርት ምረጡ:`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        ...GB_PRODUCTS.map((p) => {
+          const ul = unitLabel(p);
+          return [Markup.button.callback(`${p.emoji} ${p.label} — ${p.targetKg} ${ul}`, `tgt_prod_${p.id}`)];
+        }),
+        [Markup.button.callback("🔙 ተመለስ", "target_change")],
+      ]),
+    },
+  );
+});
+
+bot.action(/^tgt_route_(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const ro = byRoute(ctx.match[1]);
+  if (!ro) return ctx.reply("Route አልተገኘም");
+  ctx.session = { step: "SET_TARGET_ROUTE", targetRouteId: ro.id };
+  await ctx.reply(
+    `${ro.emoji} *${ro.label}*\nአሁናዊ Target: *${ro.targetKg} ኪሎ*\n\nአዲሱን Target (ኪሎ) ያስገቡ:`,
+    { parse_mode: "Markdown", ...backKb() },
+  );
+});
+
+bot.action(/^tgt_prod_(.+)$/, async (ctx) => {
+  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
+  await ctx.answerCbQuery().catch(() => {});
+  const prod = byProduct(ctx.match[1]);
+  if (!prod) return ctx.reply("ምርት አልተገኘም");
+  const ul = unitLabel(prod);
+  ctx.session = { step: "SET_TARGET_PROD", targetProdId: prod.id };
+  await ctx.reply(
+    `${prod.emoji} *${prod.label}*\nአሁናዊ Target: *${prod.targetKg} ${ul}*\n\nአዲሱን Target (${ul}) ያስገቡ:`,
+    { parse_mode: "Markdown", ...backKb() },
+  );
 });
 
 /* ─── 23. LAUNCH ────────────────────────────────────────── */
