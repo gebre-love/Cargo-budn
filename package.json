@@ -2,9 +2,9 @@
   "name": "cargo-budn-bot",
   "version": "1.0.0",
   "type": "module",
-  "main": "bot.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "telegraf": "^4.16.3",
