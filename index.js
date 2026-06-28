@@ -393,6 +393,27 @@ function capLine(total, target, unit = "ኪሎ") {
   );
 }
 
+/* ── በሰፈር ስብጥር — % ድርሻ ለ እያንዳንዱ ሰፈር ────────────────── */
+function neighborhoodBreakdown(list) {
+  const map = {};
+  let total = 0;
+  for (const r of list) {
+    const key = r.neighborhood || "—";
+    const w   = r.weightKg || 0;
+    map[key]  = (map[key] || 0) + w;
+    total += w;
+  }
+  return Object.entries(map)
+    .map(([nbr, kg]) => ({ nbr, kg, pct: total > 0 ? Math.round((kg / total) * 100) : 0 }))
+    .sort((a, b) => b.kg - a.kg);
+}
+
+function nbrBreakdownText(list, unit = "ኪሎ") {
+  const rows = neighborhoodBreakdown(list);
+  if (!rows.length) return "";
+  return rows.map((r) => `   🏘 ${r.nbr}: ${r.kg}${unit} — ${r.pct}%`).join("\n");
+}
+
 /* ─── 8. KEYBOARDS ──────────────────────────────────────── */
 async function mainKb(userId) {
   await loadExtraProducts();           /* refresh dynamic products */
@@ -669,6 +690,55 @@ async function handlePrint(ctx, routeId) {
   }
 }
 
+/* ─── 11b. PRINT MANIFEST — GROUP BUY (GB) ──────────────── */
+function buildGBManifestHTML(prod, list) {
+  const ul       = unitLabel(prod);
+  const totalKg  = list.reduce((s, r) => s + (r.weightKg || 0), 0);
+  const totalAmt = totalKg * prod.pricePerKg;
+  const now = new Date(), dateStr = now.toLocaleDateString("en-GB"), timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const sorted = [...list].sort((a, b) => (a.neighborhood || "").localeCompare(b.neighborhood || ""));
+  const rows   = sorted.map((r, i) =>
+    `<tr><td>${i + 1}</td><td>${r.fullName || "—"}</td><td>${r.phone || "—"}</td><td>${r.neighborhood || "—"}</td><td class="num">${r.weightKg || 0} ${ul}</td></tr>`,
+  ).join("");
+  const nbrRows = neighborhoodBreakdown(list).map((n) =>
+    `<tr><td>${n.nbr}</td><td class="num">${n.kg} ${ul}</td><td class="num">${n.pct}%</td></tr>`,
+  ).join("");
+  return `<!DOCTYPE html><html lang="am"><head><meta charset="UTF-8"><title>${prod.label} — የቡድን ግዥ ዝርዝር</title><style>@page{size:A4;margin:14mm}*{box-sizing:border-box}body{font-family:'Noto Sans Ethiopic','Nyala',Arial,sans-serif;color:#1a1a1a;margin:0;padding:18px;font-size:13px}.letterhead{display:flex;justify-content:space-between;border-bottom:3px solid #1a3c6e;padding-bottom:10px;margin-bottom:14px}.letterhead h1{font-size:18px;margin:0 0 4px;color:#1a3c6e}.letterhead .meta{text-align:right;font-size:12px}.route-banner{background:#1a3c6e;color:#fff;padding:8px 14px;border-radius:4px;font-size:15px;font-weight:bold;margin-bottom:14px}.summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}.box{border:1px solid #ccc;border-radius:5px;padding:7px 13px;text-align:center;background:#f7f8fa;min-width:95px}.box .v{font-size:18px;font-weight:bold;color:#1a3c6e}.box .l{font-size:10px;color:#666;margin-top:2px}table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px}th{background:#1a3c6e;color:#fff;padding:7px 6px;text-align:left}td{padding:6px;border-bottom:1px solid #ddd}tr:nth-child(even){background:#f5f6f8}.num{text-align:center}h3{color:#1a3c6e;font-size:14px;margin:18px 0 8px}.footer{margin-top:30px;display:flex;justify-content:space-between;font-size:12px}.sign-box{width:45%}.sign-line{border-top:1px solid #333;margin-top:36px;padding-top:4px;text-align:center}#printBtn{margin:16px 0;padding:10px 28px;font-size:14px;background:#1a3c6e;color:#fff;border:none;border-radius:6px;cursor:pointer}@media print{#printBtn{display:none}body{padding:0}}</style></head><body>
+<button id="printBtn" onclick="window.print()">ይህን ፕሪንት ያድርጉ</button>
+<div class="letterhead"><div><h1>የጋራ ግዥ አገልግሎት</h1><div style="font-size:12px;color:#555">Group-Buy Manifest</div></div><div class="meta">${dateStr} &nbsp; ${timeStr}<br>${SUPPORT_PHONE}</div></div>
+<div class="route-banner">${prod.emoji} ${prod.label}</div>
+<div class="summary"><div class="box"><div class="v">${list.length}</div><div class="l">ጠቅላላ ተሳፋሪ</div></div><div class="box"><div class="v">${totalKg}</div><div class="l">ጠቅላላ ${ul}</div></div><div class="box"><div class="v">${prod.targetKg}</div><div class="l">ኢላማ ${ul}</div></div><div class="box"><div class="v">${totalAmt.toLocaleString("en")}</div><div class="l">ጠቅላላ ዋጋ (ብር)</div></div></div>
+<h3>🏘 በሰፈር ድርሻ</h3>
+<table><thead><tr><th>ሰፈር</th><th class="num">${ul}</th><th class="num">%</th></tr></thead><tbody>${nbrRows}</tbody></table>
+<h3>👥 ተሳፋሪዎች ዝርዝር</h3>
+<table><thead><tr><th>#</th><th>ሙሉ ስም</th><th>ስልክ ቁጥር</th><th>ሰፈር</th><th class="num">${ul}</th></tr></thead><tbody>${rows}</tbody></table>
+<div class="footer"><div class="sign-box"><div class="sign-line">የተዘጋጀ በ — Prepared By</div></div><div class="sign-box"><div class="sign-line">የተረከበ ባለሥልጣን ፊርማ — Receiving Officer Signature</div></div></div>
+<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),400));</script></body></html>`;
+}
+
+async function handlePrintGB(ctx, productId) {
+  const prod = byProduct(productId);
+  if (!prod) { await ctx.reply("ምርት አልተገኘም"); return; }
+  let waitMsg;
+  try {
+    waitMsg = await ctx.reply("ሰነዱ እየተዘጋጀ ነው፣ ትንሽ ይጠብቁ...");
+    const list = await GBReg.find({ productId }).sort({ createdAt: 1 }).lean();
+    if (!list.length) { await ctx.reply(`${prod.emoji} ${prod.label} — ምዝገባ የለም`); return; }
+    const ul = unitLabel(prod);
+    const totalKg = list.reduce((s, r) => s + (r.weightKg || 0), 0);
+    const html = buildGBManifestHTML(prod, list), buf = Buffer.from(html, "utf-8");
+    const fname = `${prod.id}_gb_${new Date().toISOString().slice(0, 10)}.html`;
+    await sendDocumentWithRetry(ctx.chat.id,
+      { source: buf, filename: fname },
+      { caption: `*${prod.label}* — ፕሪንት ዝግጁ ሰነድ\n${list.length} ሰው | ${totalKg} ${ul}\n\nፋይሉን ይክፈቱ — ፕሪንት ይከፈታል`, parse_mode: "Markdown" },
+    );
+    if (waitMsg) bot.telegram.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+  } catch (e) {
+    console.error("handlePrintGB:", e.message);
+    await ctx.reply("ፋይሉን መላክ አልተሳካም\n\nትንሽ ቆይተው እንደገና ይሞክሩ።").catch(() => {});
+  }
+}
+
 /* ─── 12. DAILY REPORT ──────────────────────────────────── */
 async function sendDailyReport() {
   if (!ADMIN_IDS.length) return;
@@ -769,13 +839,21 @@ bot.hears("📊 የጭነት ቆጣሪ", async (ctx) => {
   ctx.session = {};
   let txt = "*የጭነት ሁኔታ*\n━━━━━━━━━━━━━━━━\n\n*አዲስ አበባ → አማራ ክልል*\n\n";
   for (const ro of ROUTES_TO_AMHARA) {
-    const total = await routeWeight(ro.id);
-    txt += `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n\n`;
+    const list  = await Reg.find({ routeId: ro.id, status: { $in: ACTIVE } }).lean();
+    const total = list.reduce((s, r) => s + (r.weightKg || 0), 0);
+    txt += `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n`;
+    const nbrText = nbrBreakdownText(list);
+    if (nbrText) txt += nbrText + "\n";
+    txt += "\n";
   }
   txt += "*አማራ ክልል → አዲስ አበባ*\n\n";
   for (const ro of ROUTES_TO_AA) {
-    const total = await routeWeight(ro.id);
-    txt += `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n\n`;
+    const list  = await Reg.find({ routeId: ro.id, status: { $in: ACTIVE } }).lean();
+    const total = list.reduce((s, r) => s + (r.weightKg || 0), 0);
+    txt += `${ro.emoji} *${ro.label}*\n${capLine(total, ro.targetKg)}\n`;
+    const nbrText = nbrBreakdownText(list);
+    if (nbrText) txt += nbrText + "\n";
+    txt += "\n";
   }
   await ctx.reply(txt, { parse_mode: "Markdown", ...(await mainKb(ctx.from?.id)) });
 });
@@ -2227,134 +2305,4 @@ bot.action(/^nbr_list_(.+)$/, async (ctx) => {
     : { status: { $in: ACTIVE } };
   const list = await Reg.find(query).sort({ neighborhood: 1, createdAt: -1 }).lean();
   if (!list.length) return ctx.reply("ምዝገባ አልተገኘም");
-  const totalKg = list.reduce((s, r) => s + (r.weightKg || 0), 0);
-  await ctx.reply(
-    `🏘 *${nbr || "ሁሉም ሰፈሮች"}*\n${list.length} ሰው | ${totalKg} ኪሎ`,
-    { parse_mode: "Markdown" },
-  );
-  const grouped = {};
-  for (const r of list) {
-    const key = r.neighborhood || "—";
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(r);
-  }
-  for (const [area, regs] of Object.entries(grouped)) {
-    if (Object.keys(grouped).length > 1) {
-      const aKg = regs.reduce((s, r) => s + (r.weightKg || 0), 0);
-      await ctx.reply(`━━ 🏘 *${area}* — ${regs.length} ሰው | ${aKg}ኪሎ ━━`, { parse_mode: "Markdown" });
-    }
-    for (const r of regs.slice(0, 20))
-      await ctx.reply(card(r, true), { parse_mode: "Markdown", ...(r.status === "reviewing" ? approveKb(r._id) : {}) });
-  }
-});
-
-/* ─── Price Panel ───────────────────────────────────────── */
-bot.action("price_panel", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
-  await ctx.answerCbQuery().catch(() => {});
-  const buttons = GB_PRODUCTS.map((p) => {
-    const ul = unitLabel(p);
-    return [Markup.button.callback(`${p.emoji} ${p.label} — ${p.pricePerKg} ብር/${ul}`, `adm_setprice_${p.id}`)];
-  });
-  buttons.push([Markup.button.callback("↩️ ተመለስ", "back_to_admin")]);
-  await ctx.reply(`💰 *ዋጋ ማሻሻያ*\n━━━━━━━━━━━━━━━━\nየትኛውን ምርት ዋጋ ለመቀየር?`, { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) });
-});
-
-bot.action(/^adm_setprice_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
-  await ctx.answerCbQuery().catch(() => {});
-  const prodId = ctx.match[1];
-  const prod   = byProduct(prodId);
-  if (!prod) return ctx.reply("❌ ምርት አልተገኘም");
-  const ul = unitLabel(prod);
-  ctx.session = { step: "ADMIN_PRICE", adminPriceId: prodId };
-  await ctx.reply(`${prod.emoji} *${prod.label}*\nአሁናዊ ዋጋ: *${prod.pricePerKg} ብር/${ul}*\n\nአዲስ ዋጋ ያስገቡ (ብር):`, { parse_mode: "Markdown", ...backKb() });
-});
-
-bot.action("back_to_admin", async (ctx) => {
-  await ctx.answerCbQuery().catch(() => {});
-  ctx.session = {};
-  const grpOn = await getSetting("group_notify_enabled", true);
-  await ctx.reply("*የአስተዳዳሪ ፓነል*", { parse_mode: "Markdown", ...adminPanelKb(grpOn) });
-});
-
-bot.action("toggle_group_notify", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
-  await ctx.answerCbQuery().catch(() => {});
-  const current = await getSetting("group_notify_enabled", true);
-  const next    = !current;
-  await setSetting("group_notify_enabled", next);
-  const icon = next ? "🟢" : "🔴", label = next ? "ተነቃቁ (ON)" : "ተዘጋ (OFF)";
-  await ctx.reply(`${icon} *Group ማስታወቂያ — ${label}*\n\n` + (next ? `ደንበኛ ሲመዘገብ ወዲያው ወደ Group ይላካል።\n_(GROUP_ID: ${GROUP_ID || "አልተቀመጠም"})_` : `Group ማስታወቂያ ቆሟል — ምዝገባ ለ Channel/Admin ብቻ ይላካል።`), { parse_mode: "Markdown" });
-});
-
-/* ── Welcome Message Editor ──────────────────────────────── */
-bot.action("welcome_edit", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
-  await ctx.answerCbQuery().catch(() => {});
-  const current = await getSetting("welcome_message", null);
-  ctx.session   = { step: "ADMIN_WELCOME" };
-  await ctx.reply(
-    `📝 *Welcome Message ቀይር*\n━━━━━━━━━━━━━━━━\n\n` +
-    (current ? `*አሁናዊ መልዕክት:*\n${current}` : `_Default_\n\n${defaultWelcomeText("[ስም]")}`) +
-    `\n\n━━━━━━━━━━━━━━━━\n👇 *አዲሱን መልዕክት* ይላኩ። \`{name}\` እና \`{fee}\` ይጠቀሙ\n\nወደ default: /resetwelcome`,
-    { parse_mode: "Markdown", ...backKb() },
-  );
-});
-
-bot.command("resetwelcome", async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply("ፈቃድ የለዎትም");
-  await setSetting("welcome_message", null);
-  ctx.session = {};
-  await ctx.reply("✅ Welcome Message ወደ default ተመልሷል।", { parse_mode: "Markdown" });
-});
-
-/* ── Menu Manager ────────────────────────────────────────── */
-bot.action("menu_manager", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
-  await ctx.answerCbQuery().catch(() => {});
-  await sendMenuManagerPanel(ctx);
-});
-
-async function sendMenuManagerPanel(ctx) {
-  const states  = await Promise.all(MENU_SETTINGS.map((m) => getSetting(m.key, true)));
-  const buttons = MENU_SETTINGS.map((m, i) => {
-    const on = states[i];
-    return [Markup.button.callback(`${on ? "🟢" : "🔴"} ${m.emoji} ${m.label}`, `tmitem_${m.key}`)];
-  });
-  buttons.push([Markup.button.callback("🔴 ሁሉንም ጥፋ", "tmall_off"), Markup.button.callback("🟢 ሁሉንም ብራ", "tmall_on")]);
-  buttons.push([Markup.button.callback("🔙 ተመለስ", "back_to_admin")]);
-  const lines = MENU_SETTINGS.map((m, i) => `${states[i] ? "🟢" : "🔴"} ${m.emoji} ${m.label}`).join("\n");
-  await ctx.reply(`*📋 ምናሌ አስተዳዳሪ*\n━━━━━━━━━━━━━━━━\n\n${lines}\n\n_ቁልፍ ይጫኑ ለመቀያየር:_`, { parse_mode: "Markdown", ...Markup.inlineKeyboard(buttons) });
-}
-
-bot.action(/^tmitem_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
-  await ctx.answerCbQuery().catch(() => {});
-  const key  = ctx.match[1];
-  const item = MENU_SETTINGS.find((m) => m.key === key);
-  if (!item) return;
-  const current = await getSetting(key, true);
-  await setSetting(key, !current);
-  await ctx.reply(`${item.emoji} *${item.label}*\n${!current ? "🟢 ተከፈተ" : "🔴 ተዘጋ"}`, { parse_mode: "Markdown" });
-  await sendMenuManagerPanel(ctx);
-});
-
-bot.action("tmall_on", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
-  await ctx.answerCbQuery().catch(() => {});
-  await Promise.all(MENU_SETTINGS.map((m) => setSetting(m.key, true)));
-  await ctx.reply("🟢 ሁሉም ምናሌዎች ተከፍቷል");
-  await sendMenuManagerPanel(ctx);
-});
-
-bot.action("tmall_off", async (ctx) => {
-  if (!isAdmin(ctx)) { await ctx.answerCbQuery("ፈቃድ የለዎትም").catch(() => {}); return; }
-  await ctx.answerCbQuery().catch(() => {});
-  await Promise.all(MENU_SETTINGS.map((m) => setSetting(m.key, false)));
-  await ctx.reply("🔴 ሁሉም ምናሌዎች ተዘግቷል");
-  await sendMenuManagerPanel(ctx);
-});
-
-/* ── GB Confirm ──────────────────────────────────────────── */
-bot.action("gb_confirm_yes", async (ctx) =
+  const totalKg = list.reduce((s, r) => s + (r.weightKg 
