@@ -1,6 +1,7 @@
 {
-  "name": "cargo-bot",
+  "name": "cargo-budn-bot",
   "version": "1.0.0",
+  "type": "module",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -8,6 +9,6 @@
   "dependencies": {
     "telegraf": "^4.16.3",
     "mongoose": "^8.0.0",
-    "@anthropic-ai/sdk": "^0.24.0"
+    "@anthropic-ai/sdk": "^0.26.0"
   }
 }
